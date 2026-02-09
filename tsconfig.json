@@ -3,8 +3,8 @@
     "rootDir": "./src",
     "outDir": "./dist",
 
-    "target": "ES2020",
-    "module": "CommonJS",
+    "target": "ES2023",
+    "module": "ESNext",
     "lib": ["ES2020"],
     "types": ["node"],
 
