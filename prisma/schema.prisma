@@ -1,0 +1,221 @@
+generator client {
+  provider = "prisma-client-js" //generates a TypeScript/JavaScript ORM client
+  output   = "../src/generated/prisma" //Custom path where Prisma client is generated
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id       String @id @default(uuid())
+  name     String
+  email    String @unique //prevents duplicate accounts
+  password String
+
+  username       String         @unique
+  role           Role
+  approvalStatus ApprovalStatus
+  isActive       Boolean        @default(false)
+
+  studentProfile StudentProfile?
+  facultyProfile FacultyProfile?
+  adminProfile   AdminProfile?
+
+  doubts             Doubt[]
+  answers            Answer[]
+  raisedComplaints   Complaint[] @relation("RaisedComplaints")
+  assignedComplaints Complaint[] @relation("AssignedComplaints")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model StudentProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  enrollmentNumber String @unique
+  department       String
+  branch           String
+  semester         Int
+
+  phoneNumber Int
+  address     String
+
+  isStudying Boolean @default(true)
+
+  guardianName  String
+  guardianPhone String
+
+  doubtsAsked  Int @default(0)
+  doubtsSolved Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model FacultyProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  department String
+  branch     String
+
+  phoneNumber String
+  address     String
+
+  isTeaching Boolean  @default(true)
+  subjects   String[]
+
+  doubtsSolved Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AdminProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  adminLevel AdminLevel
+
+  manageUsers      Boolean @default(false)
+  manageComplaints Boolean @default(false)
+  manageDoubts     Boolean @default(false)
+  viewAnalytics    Boolean @default(false)
+
+  assignedDepartments String[]
+
+  allowedCategories String[]
+
+  complaintsAssigned Int @default(0)
+  complaintsClosed   Int @default(0)
+  usersManaged       Int @default(0)
+
+  lastLoginAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Doubt {
+  id          String @id @default(uuid())
+  title       String
+  description String
+
+  semester Int
+  subject  Subject
+  labels   String[]
+
+  postedById String
+  postedBy   User   @relation(fields: [postedById], references: [id])
+
+  status DoubtStatus @default(OPEN)
+
+  views       Int @default(0)
+  upVoteCount Int @default(0)
+  answerCount Int @default(0)
+
+  acceptedAnswerId String?
+
+  edited  Boolean  @default(false)
+  answers Answer[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Answer {
+  id      String @id @default(uuid())
+  doubtId String
+  doubt   Doubt  @relation(fields: [doubtId], references: [id])
+
+  content      String
+  answeredById String
+  answeredBy   User   @relation(fields: [answeredById], references: [id])
+
+  upvotes Int @default(0)
+
+  isVerified Boolean @default(false)
+  isAccepted Boolean @default(false)
+
+  edited Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Complaint {
+  id              String            @id @default(uuid())
+  title           String
+  description     String
+  category        ComplaintCategory
+  classroomNumber String
+  block           String
+
+  status   ComplaintStatus @default(RAISED)
+  priority Int
+
+  raisedById String
+  raisedBy   User   @relation("RaisedComplaints", fields: [raisedById], references: [id])
+
+  assignedToId String?
+  assignedTo   User?   @relation("AssignedComplaints", fields: [assignedToId], references: [id])
+
+  resolutionNote String?
+  feedbackRating Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum Role {
+  STUDENT
+  FACULTY
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum Subject {
+  DSA
+  DBMS
+  OS
+  NETWORKS
+}
+
+enum DoubtStatus {
+  OPEN
+  ANSWERED
+  RESOLVED
+}
+
+enum ComplaintCategory {
+  PROJECTOR
+  FAN
+  LIGHT
+  SMART_BOARD
+  SEATING
+}
+
+enum ComplaintStatus {
+  RAISED
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum AdminLevel {
+  SUPER
+  NORMAL
+}
