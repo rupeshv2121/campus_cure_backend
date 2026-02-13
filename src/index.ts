@@ -1,22 +1,31 @@
 import "dotenv/config";
 import express from "express";
-import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "./generated/prisma/index.js";
+import cors from "cors";
+import { prisma } from "./config/database.js";
+import routes from "./routes/index.js";
 
 const app = express();
 const PORT = 5000;
-const adapter = new PrismaPg({
-  connectionString: process.env.DATABASE_URL ?? "",
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Routes
+app.use(routes);
+
+// Root route
+app.get("/", (req, res) => {
+  res.send("Hello from TypeScript backend 🚀");
 });
-const prisma = new PrismaClient({ adapter });
 
+// Server startup
 const start = async () => {
+  console.log("Starting server...");
   try {
+    console.log("Connecting to database...");
     await prisma.$connect();
-
-    app.get("/", (req, res) => {
-      res.send("Hello from TypeScript backend 🚀");
-    });
+    console.log("Database connected successfully");
 
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
