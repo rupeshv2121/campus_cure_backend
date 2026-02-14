@@ -1,12 +1,19 @@
+import cors from "cors";
 import "dotenv/config";
 import express from "express";
-import cors from "cors";
 import { prisma } from "./config/database.js";
 import routes from "./routes/index.js";
 const app = express();
 const PORT = 5000;
+const allowedOrigins = [
+    "http://localhost:5173",
+    "https://campuscure-frontend.vercel.app",
+];
 // Middleware
-app.use(cors());
+app.use(cors({
+    origin: allowedOrigins,
+    credentials: true,
+}));
 app.use(express.json());
 // Routes
 app.use(routes);
@@ -16,8 +23,11 @@ app.get("/", (req, res) => {
 });
 // Server startup
 const start = async () => {
+    console.log("Starting server...");
     try {
+        console.log("Connecting to database...");
         await prisma.$connect();
+        console.log("Database connected successfully");
         app.listen(PORT, () => {
             console.log(`Server running on port ${PORT}`);
         });
