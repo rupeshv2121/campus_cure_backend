@@ -1,26 +1,7 @@
-import cors from "cors";
 import "dotenv/config";
-import express from "express";
+import app from "./app.js";
 import { prisma } from "./config/database.js";
-import routes from "./routes/index.js";
-const app = express();
 const PORT = 5000;
-const allowedOrigins = [
-    "http://localhost:5173",
-    "https://campuscure-frontend.vercel.app",
-];
-// Middleware
-app.use(cors({
-    origin: allowedOrigins,
-    credentials: true,
-}));
-app.use(express.json());
-// Routes
-app.use(routes);
-// Root route
-app.get("/", (req, res) => {
-    res.send("Hello from TypeScript backend 🚀");
-});
 // Server startup
 const start = async () => {
     console.log("Starting server...");

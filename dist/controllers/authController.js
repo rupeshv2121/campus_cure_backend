@@ -60,6 +60,7 @@ export const register = async (req, res) => {
 // 2. Login
 export const login = async (req, res) => {
     try {
+        console.log("Login request received:", req.body);
         const { email, password } = req.body;
         if (!email || !password) {
             res.status(400).json({ error: "Email and password are required" });
@@ -69,20 +70,24 @@ export const login = async (req, res) => {
         const user = await prisma.user.findUnique({
             where: { email },
         });
+        console.log("User found:", user ? { id: user.id, email: user.email, approvalStatus: user.approvalStatus } : null);
         if (!user) {
             res.status(401).json({ error: "Invalid email" });
             return;
         }
         // Check approval status
         if (user.approvalStatus !== ApprovalStatus.APPROVED) {
-            res.status(403).json({
-                error: "Account not approved yet",
-                approvalStatus: user.approvalStatus
-            });
-            return;
+            console.log("User approval status:", user.approvalStatus);
+            // Temporarily allow login for pending users
+            // res.status(403).json({
+            //   error: "Account not approved yet",
+            //   approvalStatus: user.approvalStatus
+            // });
+            // return;
         }
         // Verify password
         const isPasswordValid = await bcrypt.compare(password, user.password);
+        console.log("Password valid:", isPasswordValid);
         if (!isPasswordValid) {
             res.status(401).json({ error: "Invalid password" });
             return;
