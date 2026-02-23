@@ -12,7 +12,10 @@ const ensurePrismaConnected = async () => {
   await prismaConnectionPromise;
 };
 
-export default async function handler(req: Parameters<typeof app>[0], res: Parameters<typeof app>[1]) {
+export default async function handler(
+  req: Parameters<typeof app>[0],
+  res: Parameters<typeof app>[1],
+) {
   await ensurePrismaConnected();
   return app(req, res);
 }
