@@ -9,8 +9,25 @@ const start = async () => {
   console.log("Starting server...");
   try {
     console.log("Connecting to database...");
-    await prisma.$connect();
-    console.log("Database connected successfully");
+    console.log(
+      "Database URL:",
+      process.env.DATABASE_URL?.replace(/:[^:@]+@/, ":****@"),
+    ); // Log without password
+
+    // Test connection with retry logic
+    let retries = 3;
+    while (retries > 0) {
+      try {
+        await prisma.$connect();
+        console.log("Database connected successfully");
+        break;
+      } catch (error) {
+        retries--;
+        console.log(`Connection attempt failed. Retries left: ${retries}`);
+        if (retries === 0) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2s before retry
+      }
+    }
 
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
