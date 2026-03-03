@@ -52,6 +52,9 @@ model StudentProfile {
   doubtsAsked  Int @default(0)
   doubtsSolved Int @default(0)
 
+  totalComplaints       Int @default(0)
+  totalActiveComplaints Int @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
