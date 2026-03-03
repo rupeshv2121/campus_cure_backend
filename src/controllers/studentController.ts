@@ -226,6 +226,27 @@ export const getComplaints = async (
   try {
     const complaints = await prisma.complaint.findMany({
       where: { raisedById: req.user!.id },
+      include: {
+        raisedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        assignedTo: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            facultyProfile: {
+              select: {
+                department: true,
+              },
+            },
+          },
+        },
+      },
       orderBy: { createdAt: "desc" },
     });
 
