@@ -1,9 +1,9 @@
 import { prisma } from "../config/database.js";
-import { Role, ApprovalStatus } from "../generated/prisma/index.js";
+import { ApprovalStatus, Role } from "../generated/prisma/index.js";
 // 5. Create Student Profile (Called after basic registration)
 export const createStudentProfile = async (req, res) => {
     try {
-        const { userId, enrollmentNumber, department, branch, semester, phoneNumber, address, guardianName, guardianPhone } = req.body;
+        const { userId, enrollmentNumber, department, branch, semester, phoneNumber, address, guardianName, guardianPhone, } = req.body;
         if (!userId) {
             res.status(400).json({ error: "User ID is required" });
             return;
@@ -54,7 +54,7 @@ export const createStudentProfile = async (req, res) => {
         });
         res.status(201).json({
             message: "Student profile created successfully. You can now login.",
-            profile
+            profile,
         });
     }
     catch (error) {
@@ -92,7 +92,7 @@ export const getStudentProfile = async (req, res) => {
 // 7. Update Student Profile
 export const updateStudentProfile = async (req, res) => {
     try {
-        const { department, branch, semester, phoneNumber, address, guardianName, guardianPhone } = req.body;
+        const { department, branch, semester, phoneNumber, address, guardianName, guardianPhone, } = req.body;
         const profile = await prisma.studentProfile.update({
             where: { userId: req.user.id },
             data: {
@@ -109,6 +109,92 @@ export const updateStudentProfile = async (req, res) => {
     }
     catch (error) {
         console.error("Update student profile error:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+};
+// 8. Raise Complaint
+export const raiseComplaint = async (req, res) => {
+    try {
+        const { title, description, category, priority, classroomNumber, block } = req.body;
+        if (!title ||
+            !description ||
+            !category ||
+            !priority ||
+            !classroomNumber ||
+            !block) {
+            res.status(400).json({ error: "All fields are required" });
+            return;
+        }
+        console.log("Raising complaint with data:", {
+            title,
+            description,
+            category,
+            priority,
+            classroomNumber,
+            block,
+        });
+        // Create complaint and update student profile counters in a transaction
+        const [complaint] = await prisma.$transaction([
+            prisma.complaint.create({
+                data: {
+                    title,
+                    description,
+                    category,
+                    priority,
+                    classroomNumber,
+                    block,
+                    raisedBy: { connect: { id: req.user.id } },
+                },
+            }),
+            prisma.studentProfile.update({
+                where: { userId: req.user.id },
+                data: {
+                    totalComplaints: { increment: 1 },
+                    totalActiveComplaints: { increment: 1 },
+                },
+            }),
+        ]);
+        res
+            .status(201)
+            .json({ message: "Complaint raised successfully", complaint });
+    }
+    catch (error) {
+        console.error("Error raising complaint:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+};
+// 9. Get All Complaints for student
+export const getComplaints = async (req, res) => {
+    try {
+        const complaints = await prisma.complaint.findMany({
+            where: { raisedById: req.user.id },
+            include: {
+                raisedBy: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                    },
+                },
+                assignedTo: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                        facultyProfile: {
+                            select: {
+                                department: true,
+                            },
+                        },
+                    },
+                },
+            },
+            orderBy: { createdAt: "desc" },
+        });
+        res.json({ complaints });
+    }
+    catch (e) {
+        console.error("Error fetching complaints:", e);
         res.status(500).json({ error: "Internal server error" });
     }
 };

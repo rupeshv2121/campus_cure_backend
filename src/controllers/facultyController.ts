@@ -1,12 +1,16 @@
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
+import { ApprovalStatus, Role } from "../generated/prisma/index.js";
 import type { AuthRequest } from "../types/index.js";
-import { Role, ApprovalStatus } from "../generated/prisma/index.js";
 
-// 8. Create Faculty Profile
-export const createFacultyProfile = async (req: Request, res: Response): Promise<void> => {
+// 1. Create Faculty Profile
+export const createFacultyProfile = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
-    const { userId, department, branch, phoneNumber, address, subjects } = req.body;
+    const { userId, department, branch, phoneNumber, address, subjects } =
+      req.body;
 
     if (!userId) {
       res.status(400).json({ error: "User ID is required" });
@@ -49,7 +53,8 @@ export const createFacultyProfile = async (req: Request, res: Response): Promise
         branch: branch || "",
         phoneNumber: phoneNumber || "",
         address: address || "",
-        isTeaching: req.body.isTeaching !== undefined ? req.body.isTeaching : true,
+        isTeaching:
+          req.body.isTeaching !== undefined ? req.body.isTeaching : true,
         subjects: subjects || [],
         doubtsSolved: 0,
       },
@@ -63,7 +68,7 @@ export const createFacultyProfile = async (req: Request, res: Response): Promise
 
     res.status(201).json({
       message: "Faculty profile created successfully. You can now login.",
-      profile
+      profile,
     });
   } catch (error) {
     console.error("Create faculty profile error:", error);
@@ -71,8 +76,11 @@ export const createFacultyProfile = async (req: Request, res: Response): Promise
   }
 };
 
-// 9. Get Faculty Profile
-export const getFacultyProfile = async (req: AuthRequest, res: Response): Promise<void> => {
+// 2. Get Faculty Profile
+export const getFacultyProfile = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
   try {
     const profile = await prisma.facultyProfile.findUnique({
       where: { userId: req.user!.id },
@@ -100,10 +108,14 @@ export const getFacultyProfile = async (req: AuthRequest, res: Response): Promis
   }
 };
 
-// 10. Update Faculty Profile
-export const updateFacultyProfile = async (req: AuthRequest, res: Response): Promise<void> => {
+// 3. Update Faculty Profile
+export const updateFacultyProfile = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
   try {
-    const { department, branch, phoneNumber, address, subjects, isTeaching } = req.body;
+    const { department, branch, phoneNumber, address, subjects, isTeaching } =
+      req.body;
 
     const profile = await prisma.facultyProfile.update({
       where: { userId: req.user!.id },
@@ -120,6 +132,23 @@ export const updateFacultyProfile = async (req: AuthRequest, res: Response): Pro
     res.json({ message: "Profile updated successfully", profile });
   } catch (error) {
     console.error("Update faculty profile error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// 4. Get Complaints Assigned to Faculty
+export const assignedComplaints = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const complaints = await prisma.complaint.findMany({
+      where: { assignedToId: req.user!.id },
+      orderBy: { createdAt: "desc" },
+    });
+    res.json({ complaints });
+  } catch (error) {
+    console.error("Get assigned complaints error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

@@ -1,6 +1,6 @@
 import { prisma } from "../config/database.js";
-import { Role, ApprovalStatus } from "../generated/prisma/index.js";
-// 8. Create Faculty Profile
+import { ApprovalStatus, Role } from "../generated/prisma/index.js";
+// 1. Create Faculty Profile
 export const createFacultyProfile = async (req, res) => {
     try {
         const { userId, department, branch, phoneNumber, address, subjects } = req.body;
@@ -50,7 +50,7 @@ export const createFacultyProfile = async (req, res) => {
         });
         res.status(201).json({
             message: "Faculty profile created successfully. You can now login.",
-            profile
+            profile,
         });
     }
     catch (error) {
@@ -58,7 +58,7 @@ export const createFacultyProfile = async (req, res) => {
         res.status(500).json({ error: "Internal server error" });
     }
 };
-// 9. Get Faculty Profile
+// 2. Get Faculty Profile
 export const getFacultyProfile = async (req, res) => {
     try {
         const profile = await prisma.facultyProfile.findUnique({
@@ -85,7 +85,7 @@ export const getFacultyProfile = async (req, res) => {
         res.status(500).json({ error: "Internal server error" });
     }
 };
-// 10. Update Faculty Profile
+// 3. Update Faculty Profile
 export const updateFacultyProfile = async (req, res) => {
     try {
         const { department, branch, phoneNumber, address, subjects, isTeaching } = req.body;
@@ -104,6 +104,20 @@ export const updateFacultyProfile = async (req, res) => {
     }
     catch (error) {
         console.error("Update faculty profile error:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+};
+// 4. Get Complaints Assigned to Faculty
+export const assignedComplaints = async (req, res) => {
+    try {
+        const complaints = await prisma.complaint.findMany({
+            where: { assignedToId: req.user.id },
+            orderBy: { createdAt: "desc" },
+        });
+        res.json({ complaints });
+    }
+    catch (error) {
+        console.error("Get assigned complaints error:", error);
         res.status(500).json({ error: "Internal server error" });
     }
 };

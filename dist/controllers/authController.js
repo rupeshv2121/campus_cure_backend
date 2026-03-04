@@ -1,7 +1,8 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import { prisma, JWT_SECRET } from "../config/database.js";
-import { Role, ApprovalStatus } from "../generated/prisma/index.js";
+import { JWT_SECRET, prisma } from "../config/database.js";
+import { AdminLevel, ApprovalStatus, Role } from "../generated/prisma/index.js";
+import { withRetry } from "../utils/retry.js";
 // 1. Register (Student / Faculty / Admin)
 export const register = async (req, res) => {
     try {
@@ -17,19 +18,21 @@ export const register = async (req, res) => {
             return;
         }
         // Check if user already exists
-        const existingUser = await prisma.user.findFirst({
+        const existingUser = await withRetry(() => prisma.user.findFirst({
             where: {
                 OR: [{ email }, { username }],
             },
-        });
+        }));
         if (existingUser) {
-            res.status(400).json({ error: "User with this email or username already exists" });
+            res
+                .status(400)
+                .json({ error: "User with this email or username already exists" });
             return;
         }
         // Hash password
         const hashedPassword = await bcrypt.hash(password, 10);
-        // Create user
-        const user = await prisma.user.create({
+        // Create user with retry
+        const user = await withRetry(() => prisma.user.create({
             data: {
                 name,
                 email,
@@ -39,7 +42,45 @@ export const register = async (req, res) => {
                 approvalStatus: ApprovalStatus.PENDING,
                 isActive: false,
             },
-        });
+        }));
+        // Create corresponding profile based on role
+        if (role === "STUDENT") {
+            await withRetry(() => prisma.studentProfile.create({
+                data: {
+                    userId: user.id,
+                    enrollmentNumber: username,
+                    department: "Not Set",
+                    branch: "Not Set",
+                    semester: 1,
+                    phoneNumber: 0,
+                    address: "Not Set",
+                    guardianName: "Not Set",
+                    guardianPhone: "Not Set",
+                },
+            }));
+        }
+        else if (role === "FACULTY") {
+            await withRetry(() => prisma.facultyProfile.create({
+                data: {
+                    userId: user.id,
+                    department: "Not Set",
+                    branch: "Not Set",
+                    phoneNumber: "Not Set",
+                    address: "Not Set",
+                    subjects: [],
+                },
+            }));
+        }
+        else if (role === "ADMIN" || role === "SUPER_ADMIN") {
+            await withRetry(() => prisma.adminProfile.create({
+                data: {
+                    userId: user.id,
+                    adminLevel: role === "SUPER_ADMIN" ? AdminLevel.SUPER : AdminLevel.NORMAL,
+                    assignedDepartments: [],
+                    allowedCategories: [],
+                },
+            }));
+        }
         res.status(201).json({
             message: "Registration successful. Waiting for approval.",
             user: {
@@ -54,6 +95,13 @@ export const register = async (req, res) => {
     }
     catch (error) {
         console.error("Registration error:", error);
+        // Check if it's a Prisma connection error
+        if (error instanceof Error && error.message.includes("ETIMEDOUT")) {
+            res.status(503).json({
+                error: "Database connection timeout. The database might be unavailable or sleeping. Please try again in a moment.",
+            });
+            return;
+        }
         res.status(500).json({ error: "Internal server error" });
     }
 };
@@ -66,11 +114,17 @@ export const login = async (req, res) => {
             res.status(400).json({ error: "Email and password are required" });
             return;
         }
-        // Find user
-        const user = await prisma.user.findUnique({
+        // Find user with retry logic
+        const user = await withRetry(() => prisma.user.findUnique({
             where: { email },
-        });
-        console.log("User found:", user ? { id: user.id, email: user.email, approvalStatus: user.approvalStatus } : null);
+        }));
+        console.log("User found:", user
+            ? {
+                id: user.id,
+                email: user.email,
+                approvalStatus: user.approvalStatus,
+            }
+            : null);
         if (!user) {
             res.status(401).json({ error: "Invalid email" });
             return;
@@ -92,17 +146,22 @@ export const login = async (req, res) => {
             res.status(401).json({ error: "Invalid password" });
             return;
         }
-        // Update user status to active
-        await prisma.user.update({
+        // Update user status to active with retry
+        await withRetry(() => prisma.user.update({
             where: { id: user.id },
             data: { isActive: true },
-        });
-        // Update last login for admin
+        }));
+        // Update last login for admin (only if profile exists)
         if (user.role === Role.ADMIN || user.role === Role.SUPER_ADMIN) {
-            await prisma.adminProfile.update({
+            const adminProfile = await withRetry(() => prisma.adminProfile.findUnique({
                 where: { userId: user.id },
-                data: { lastLoginAt: new Date() },
-            });
+            }));
+            if (adminProfile) {
+                await withRetry(() => prisma.adminProfile.update({
+                    where: { userId: user.id },
+                    data: { lastLoginAt: new Date() },
+                }));
+            }
         }
         // Generate JWT token
         const token = jwt.sign({ id: user.id, role: user.role, username: user.username }, JWT_SECRET, { expiresIn: "7d" });
@@ -120,6 +179,13 @@ export const login = async (req, res) => {
     }
     catch (error) {
         console.error("Login error:", error);
+        // Check if it's a Prisma connection error
+        if (error instanceof Error && error.message.includes("ETIMEDOUT")) {
+            res.status(503).json({
+                error: "Database connection timeout. The database might be unavailable or sleeping. Please try again in a moment.",
+            });
+            return;
+        }
         res.status(500).json({ error: "Internal server error" });
     }
 };
