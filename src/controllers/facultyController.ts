@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
-import { ApprovalStatus, Role } from "../generated/prisma/index.js";
+import { ApprovalStatus, Role, DoubtStatus} from "../generated/prisma/index.js";
 import type { AuthRequest } from "../types/index.js";
 
 // 1. Create Faculty Profile
@@ -149,6 +149,327 @@ export const assignedComplaints = async (
     res.json({ complaints });
   } catch (error) {
     console.error("Get assigned complaints error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// ============ DOUBT MANAGEMENT ============
+
+// 11. Verify an answer (Faculty only)
+export const verifyAnswer = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const answerId = req.params.answerId as string;
+
+    const answer = await prisma.answer.update({
+      where: { id: answerId },
+      data: { isVerified: true },
+      include: {
+        answeredBy: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+          },
+        },
+      },
+    });
+
+    res.json({ message: "Answer verified successfully", answer });
+  } catch (error) {
+    console.error("Error verifying answer:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// 12. Post an answer to a doubt (Faculty)
+export const postAnswer = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const doubtId = req.params.doubtId as string;
+    const { content } = req.body;
+
+    if (!content) {
+      res.status(400).json({ error: "Content is required" });
+      return;
+    }
+
+    // Check if doubt exists
+    const doubt = await prisma.doubt.findUnique({
+      where: { id: doubtId },
+    });
+
+    if (!doubt) {
+      res.status(404).json({ error: "Doubt not found" });
+      return;
+    }
+
+    // Create answer and update doubt
+    const [answer] = await prisma.$transaction([
+      prisma.answer.create({
+        data: {
+          content,
+          doubtId,
+          answeredById: req.user!.id,
+        },
+        include: {
+          answeredBy: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              role: true,
+              facultyProfile: {
+                select: {
+                  department: true,
+                  subjects: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      prisma.doubt.update({
+        where: { id: doubtId },
+        data: {
+          answerCount: { increment: 1 },
+          status: DoubtStatus.ANSWERED,
+        },
+      }),
+      prisma.facultyProfile.update({
+        where: { userId: req.user!.id },
+        data: { doubtsSolved: { increment: 1 } },
+      }),
+    ]);
+
+    res.status(201).json({ message: "Answer posted successfully", answer });
+  } catch (error) {
+    console.error("Error posting answer:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// 13. Edit an answer (Faculty)
+export const editAnswer = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const answerId = req.params.answerId as string;
+    const { content } = req.body;
+
+    if (!content) {
+      res.status(400).json({ error: "Content is required" });
+      return;
+    }
+
+    // Check if answer exists and belongs to the user
+    const existingAnswer = await prisma.answer.findUnique({
+      where: { id: answerId },
+    });
+
+    if (!existingAnswer) {
+      res.status(404).json({ error: "Answer not found" });
+      return;
+    }
+
+    if (existingAnswer.answeredById !== req.user!.id) {
+      res.status(403).json({ error: "You can only edit your own answers" });
+      return;
+    }
+
+    // Create edit history entry
+    const editHistory = Array.isArray(existingAnswer.editHistory)
+      ? existingAnswer.editHistory
+      : [];
+
+    editHistory.push({
+      content: existingAnswer.content,
+      editedAt: new Date().toISOString(),
+    });
+
+    const answer = await prisma.answer.update({
+      where: { id: answerId },
+      data: {
+        content,
+        edited: true,
+        editHistory,
+      },
+    });
+
+    res.json({ message: "Answer updated successfully", answer });
+  } catch (error) {
+    console.error("Error editing answer:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// 14. Get all doubts (Faculty can see all doubts)
+export const getDoubts = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { status, subject, semester, search } = req.query;
+
+    const where: any = {};
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (subject) {
+      where.subject = subject;
+    }
+
+    if (semester) {
+      where.semester = parseInt(semester as string);
+    }
+
+    if (search) {
+      where.OR = [
+        { title: { contains: search as string, mode: "insensitive" } },
+        { description: { contains: search as string, mode: "insensitive" } },
+      ];
+    }
+
+    const doubts = await prisma.doubt.findMany({
+      where,
+      include: {
+        postedBy: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            studentProfile: {
+              select: {
+                semester: true,
+                branch: true,
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            answers: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    res.json({ doubts });
+  } catch (error) {
+    console.error("Error fetching doubts:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// 15. Get a single doubt by ID with all answers (Faculty)
+export const getDoubtById = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+
+    // Increment view count
+    const doubt = await prisma.doubt.update({
+      where: { id },
+      data: { views: { increment: 1 } },
+      include: {
+        postedBy: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            studentProfile: {
+              select: {
+                semester: true,
+                branch: true,
+              },
+            },
+          },
+        },
+        answers: {
+          include: {
+            answeredBy: {
+              select: {
+                id: true,
+                name: true,
+                username: true,
+                role: true,
+                facultyProfile: {
+                  select: {
+                    department: true,
+                    subjects: true,
+                  },
+                },
+                studentProfile: {
+                  select: {
+                    semester: true,
+                    branch: true,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: [
+            { isAccepted: "desc" },
+            { isVerified: "desc" },
+            { upvotes: "desc" },
+            { createdAt: "asc" },
+          ],
+        },
+      },
+    });
+
+    if (!doubt) {
+      res.status(404).json({ error: "Doubt not found" });
+      return;
+    }
+
+    res.json({ doubt });
+  } catch (error) {
+    console.error("Error fetching doubt:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// 16. Get faculty's answers
+export const getMyAnswers = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const answers = await prisma.answer.findMany({
+      where: { answeredById: req.user!.id },
+      include: {
+        doubt: {
+          select: {
+            id: true,
+            title: true,
+            subject: true,
+            status: true,
+            postedBy: {
+              select: {
+                name: true,
+                username: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    res.json({ answers });
+  } catch (error) {
+    console.error("Error fetching my answers:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

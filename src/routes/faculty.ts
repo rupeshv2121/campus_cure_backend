@@ -2,11 +2,17 @@ import { Router } from "express";
 import {
   assignedComplaints,
   createFacultyProfile,
-  getFacultyProfile,
   updateFacultyProfile,
+  editAnswer,
+  getDoubtById,
+  getDoubts,
+  getFacultyProfile,
+  getMyAnswers,
+  postAnswer,
+  verifyAnswer,
 } from "../controllers/facultyController.js";
-import { Role } from "../generated/prisma/index.js";
 import { authenticate, authorize } from "../middleware/auth.js";
+import { Role } from "../generated/prisma/index.js";
 
 const router = Router();
 
@@ -19,6 +25,45 @@ router.get("/me", authenticate, authorize(Role.FACULTY), getFacultyProfile);
 // 10. Update Faculty Profile
 router.put("/me", authenticate, authorize(Role.FACULTY), updateFacultyProfile);
 
+// ========== DOUBTS ==========
+
+// 11. Get all doubts
+router.get("/doubts", authenticate, authorize(Role.FACULTY), getDoubts);
+
+// 12. Get a single doubt by ID
+router.get("/doubts/:id", authenticate, authorize(Role.FACULTY), getDoubtById);
+
+// ========== ANSWERS ==========
+
+// 13. Post an answer to a doubt
+router.post(
+  "/doubts/:doubtId/answers",
+  authenticate,
+  authorize(Role.FACULTY),
+  postAnswer,
+);
+
+// 14. Edit an answer
+router.put(
+  "/answers/:answerId",
+  authenticate,
+  authorize(Role.FACULTY),
+  editAnswer,
+);
+
+// 15. Verify an answer
+router.post(
+  "/answers/:answerId/verify",
+  authenticate,
+  authorize(Role.FACULTY),
+  verifyAnswer,
+);
+
+// 16. Get faculty's answers
+router.get("/answers/my", authenticate, authorize(Role.FACULTY), getMyAnswers);
+
+export default router;
+
 // 11. Get Complaints Assigned to Faculty
 router.get(
   "/complaints",
@@ -26,5 +71,3 @@ router.get(
   authorize(Role.FACULTY),
   assignedComplaints,
 );
-
-export default router;
