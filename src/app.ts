@@ -5,14 +5,21 @@ import routes from "./routes/index.js";
 const app = express();
 
 const allowedOrigins = [
+  process.env.FRONTEND_URL,
   "http://localhost:5173",
   "http://localhost:5174",
   "https://campuscure-frontend.vercel.app",
-];
+].filter(Boolean) as string[];
 
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS: origin '${origin}' not allowed`));
+      }
+    },
     credentials: true,
   }),
 );
