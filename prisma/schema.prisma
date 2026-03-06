@@ -125,8 +125,9 @@ model Doubt {
 
   acceptedAnswerId String?
 
-  edited  Boolean  @default(false)
-  answers Answer[]
+  edited      Boolean @default(false)
+  editHistory Json    @default("[]")
+  answers     Answer[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -146,7 +147,8 @@ model Answer {
   isVerified Boolean @default(false)
   isAccepted Boolean @default(false)
 
-  edited Boolean @default(false)
+  edited      Boolean @default(false)
+  editHistory Json    @default("[]")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
