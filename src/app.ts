@@ -8,7 +8,7 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   "http://localhost:5173",
   "http://localhost:5174",
-  "https://campuscure-frontend.vercel.app",
+  "https://campus-cure-frontend.vercel.app",
 ].filter(Boolean) as string[];
 
 app.use(
@@ -24,6 +24,21 @@ app.use(
   }),
 );
 app.use(express.json());
+
+// Explicitly handle OPTIONS preflight for all routes
+app.options(
+  "*",
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS: origin '${origin}' not allowed`));
+      }
+    },
+    credentials: true,
+  }),
+);
 
 app.use(routes);
 
