@@ -8,25 +8,26 @@ datasource db {
 }
 
 model User {
-  name               String
-  email              String          @unique
-  password           String
-  username           String          @unique
-  isActive           Boolean         @default(false)
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  id                 String          @id @default(uuid())
-  role               Role
-  approvalStatus     ApprovalStatus
-  faceDescriptor     Float[]         @default([])
-  adminProfile       AdminProfile?
+  id       String @id @default(uuid())
+  name     String
+  email    String @unique //prevents duplicate accounts
+  password String
+
+  username       String         @unique
+  role           Role
+  approvalStatus ApprovalStatus
+  isActive       Boolean        @default(false)
+  faceDescriptor Float[]        @default([])
+
+  studentProfile StudentProfile?
+  facultyProfile FacultyProfile?
+  adminProfile   AdminProfile?
+  doubts         Doubt[]
+
   answers            Answer[]
-  assignedComplaints Complaint[]     @relation("AssignedComplaints")
-  raisedComplaints   Complaint[]     @relation("RaisedComplaints")
-  doubts             Doubt[]
+  assignedComplaints Complaint[] @relation("AssignedComplaints")
+  raisedComplaints   Complaint[] @relation("RaisedComplaints")
   doubtViews         DoubtView[]
-  facultyProfile     FacultyProfile?
-  studentProfile     StudentProfile?
 }
 
 model StudentProfile {
@@ -97,13 +98,15 @@ model Doubt {
   upVoteCount      Int         @default(0)
   answerCount      Int         @default(0)
   acceptedAnswerId String?
-  edited           Boolean     @default(false)
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
-  editHistory      Json        @default("[]")
-  answers          Answer[]
-  viewedBy         DoubtView[]
-  postedBy         User        @relation(fields: [postedById], references: [id])
+
+  edited      Boolean  @default(false)
+  editHistory Json     @default("[]")
+  answers     Answer[]
+  postedBy    User     @relation(fields: [postedById], references: [id])
+
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  doubtViews DoubtView[]
 }
 
 model Answer {

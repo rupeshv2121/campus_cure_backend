@@ -1,5 +1,12 @@
 import { Router } from "express";
-import { register, login, getMe, logout } from "../controllers/authController.js";
+import {
+  faceLogin,
+  getMe,
+  login,
+  logout,
+  register,
+  saveFaceDescriptor,
+} from "../controllers/authController.js";
 import { authenticate } from "../middleware/auth.js";
 
 const router = Router();
@@ -16,5 +23,11 @@ router.get("/me", authenticate, getMe);
 
 // 4. Logout
 router.post("/logout", authenticate, logout);
+
+// 5. Save Face Descriptor (requires JWT — called right after registration)
+router.post("/save-face-descriptor", authenticate, saveFaceDescriptor);
+
+// 6. Face Login
+router.post("/face-login", faceLogin);
 
 export default router;
