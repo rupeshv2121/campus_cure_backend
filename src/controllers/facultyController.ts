@@ -376,11 +376,37 @@ export const getDoubtById = async (
 ): Promise<void> => {
   try {
     const id = req.params.id as string;
+    const userId = req.user!.id;
 
-    // Increment view count
-    const doubt = await prisma.doubt.update({
+    // Check if user has already viewed this doubt
+    const existingView = await prisma.doubtView.findUnique({
+      where: {
+        doubtId_userId: {
+          doubtId: id,
+          userId: userId,
+        },
+      },
+    });
+
+    // If user hasn't viewed this doubt before, increment view count and create view record
+    if (!existingView) {
+      await prisma.$transaction([
+        prisma.doubtView.create({
+          data: {
+            doubtId: id,
+            userId: userId,
+          },
+        }),
+        prisma.doubt.update({
+          where: { id },
+          data: { views: { increment: 1 } },
+        }),
+      ]);
+    }
+
+    // Fetch the doubt with all related data
+    const doubt = await prisma.doubt.findUnique({
       where: { id },
-      data: { views: { increment: 1 } },
       include: {
         postedBy: {
           select: {
