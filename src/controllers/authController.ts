@@ -71,6 +71,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
             address: "Not Set",
             guardianName: "Not Set",
             guardianPhone: "Not Set",
+            updatedAt: new Date(),
           },
         }),
       );
