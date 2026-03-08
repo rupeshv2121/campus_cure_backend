@@ -14,7 +14,7 @@ model User {
   username           String          @unique
   isActive           Boolean         @default(false)
   createdAt          DateTime        @default(now())
-  updatedAt          DateTime
+  updatedAt          DateTime        @updatedAt
   id                 String          @id @default(uuid())
   role               Role
   approvalStatus     ApprovalStatus
@@ -36,7 +36,7 @@ model StudentProfile {
   department            String
   branch                String
   semester              Int
-  phoneNumber           Int
+  phoneNumber           String
   address               String
   isStudying            Boolean  @default(true)
   guardianName          String
