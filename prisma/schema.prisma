@@ -17,6 +17,7 @@ model User {
   role           Role
   approvalStatus ApprovalStatus
   isActive       Boolean        @default(false)
+  faceDescriptor Float[]        @default([])
 
   studentProfile StudentProfile?
   facultyProfile FacultyProfile?
@@ -125,8 +126,8 @@ model Doubt {
 
   acceptedAnswerId String?
 
-  edited      Boolean @default(false)
-  editHistory Json    @default("[]")
+  edited      Boolean  @default(false)
+  editHistory Json     @default("[]")
   answers     Answer[]
 
   createdAt DateTime @default(now())

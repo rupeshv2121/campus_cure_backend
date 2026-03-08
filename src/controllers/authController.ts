@@ -293,3 +293,162 @@ export const logout = async (
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
+// Utility: Euclidean distance between two face descriptor vectors
+function euclideanDistance(a: number[], b: number[]): number {
+  return Math.sqrt(
+    a.reduce((sum, val, i) => sum + Math.pow(val - (b[i] ?? 0), 2), 0),
+  );
+}
+
+// 5. Save Face Descriptor (called after registration while authenticated)
+export const saveFaceDescriptor = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { descriptor } = req.body;
+
+    if (
+      !descriptor ||
+      !Array.isArray(descriptor) ||
+      descriptor.length !== 128
+    ) {
+      res.status(400).json({
+        error: "Invalid face descriptor. Must be a 128-element array.",
+      });
+      return;
+    }
+
+    // Validate all elements are numbers
+    if (
+      !descriptor.every((v: unknown) => typeof v === "number" && isFinite(v))
+    ) {
+      res
+        .status(400)
+        .json({ error: "Descriptor must contain only finite numbers." });
+      return;
+    }
+
+    await withRetry(() =>
+      prisma.user.update({
+        where: { id: req.user!.id },
+        data: { faceDescriptor: descriptor },
+      }),
+    );
+
+    res.json({ message: "Face descriptor saved successfully." });
+  } catch (error) {
+    console.error("Save face descriptor error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// 6. Face Login
+export const faceLogin = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { descriptor } = req.body;
+
+    if (
+      !descriptor ||
+      !Array.isArray(descriptor) ||
+      descriptor.length !== 128
+    ) {
+      res.status(400).json({
+        error: "Invalid face descriptor. Must be a 128-element array.",
+      });
+      return;
+    }
+
+    if (
+      !descriptor.every((v: unknown) => typeof v === "number" && isFinite(v))
+    ) {
+      res
+        .status(400)
+        .json({ error: "Descriptor must contain only finite numbers." });
+      return;
+    }
+
+    // Fetch all users that have a face descriptor registered
+    const users = await withRetry(() =>
+      prisma.user.findMany({
+        where: {
+          NOT: { faceDescriptor: { isEmpty: true } },
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          username: true,
+          role: true,
+          approvalStatus: true,
+          isActive: true,
+          faceDescriptor: true,
+        },
+      }),
+    );
+
+    if (users.length === 0) {
+      res.status(401).json({
+        error: "No registered face found. Please register your face first.",
+      });
+      return;
+    }
+
+    // Find best matching user
+    let bestMatch: (typeof users)[0] | null = null;
+    let bestDistance = Infinity;
+
+    for (const user of users) {
+      if (user.faceDescriptor.length !== 128) continue;
+      const distance = euclideanDistance(descriptor, user.faceDescriptor);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestMatch = user;
+      }
+    }
+
+    const MATCH_THRESHOLD = 0.6;
+
+    if (!bestMatch || bestDistance >= MATCH_THRESHOLD) {
+      res.status(401).json({
+        error: "Face not recognized. Please try again or use password login.",
+      });
+      return;
+    }
+
+    // Note: approval check is intentionally skipped here to match the
+    // behaviour of password login (pending users are allowed to authenticate).
+    // Enforce access restrictions at the protected-route level instead.
+
+    // Mark user as active (required so the authenticate middleware doesn't reject the token)
+    await withRetry(() =>
+      prisma.user.update({
+        where: { id: bestMatch!.id },
+        data: { isActive: true },
+      }),
+    );
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: bestMatch.id, role: bestMatch.role, username: bestMatch.username },
+      JWT_SECRET,
+      { expiresIn: "7d" },
+    );
+
+    res.json({
+      message: "Face login successful",
+      token,
+      user: {
+        id: bestMatch.id,
+        name: bestMatch.name,
+        email: bestMatch.email,
+        username: bestMatch.username,
+        role: bestMatch.role,
+      },
+    });
+  } catch (error) {
+    console.error("Face login error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};

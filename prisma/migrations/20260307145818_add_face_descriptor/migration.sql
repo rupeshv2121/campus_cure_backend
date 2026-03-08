@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN     "faceDescriptor" DOUBLE PRECISION[] DEFAULT ARRAY[]::DOUBLE PRECISION[];
