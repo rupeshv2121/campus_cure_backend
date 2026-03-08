@@ -1,6 +1,10 @@
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
-import { ApprovalStatus, Role, DoubtStatus } from "../generated/prisma/index.js";
+import {
+  ApprovalStatus,
+  DoubtStatus,
+  Role,
+} from "../generated/prisma/index.js";
 import type { AuthRequest } from "../types/index.js";
 
 // 5. Create Student Profile (Called after basic registration)
@@ -268,7 +272,11 @@ export const postDoubt = async (
     const { title, description, semester, subject, labels } = req.body;
 
     if (!title || !description || !semester || !subject) {
-      res.status(400).json({ error: "Title, description, semester, and subject are required" });
+      res
+        .status(400)
+        .json({
+          error: "Title, description, semester, and subject are required",
+        });
       return;
     }
 
@@ -386,33 +394,7 @@ export const getDoubtById = async (
     const id = req.params.id as string;
     const userId = req.user!.id;
 
-    // Check if user has already viewed this doubt
-    const existingView = await prisma.doubtView.findUnique({
-      where: {
-        doubtId_userId: {
-          doubtId: id,
-          userId: userId,
-        },
-      },
-    });
-
-    // If user hasn't viewed this doubt before, increment view count and create view record
-    if (!existingView) {
-      await prisma.$transaction([
-        prisma.doubtView.create({
-          data: {
-            doubtId: id,
-            userId: userId,
-          },
-        }),
-        prisma.doubt.update({
-          where: { id },
-          data: { views: { increment: 1 } },
-        }),
-      ]);
-    }
-
-    // Fetch the doubt with all related data
+    // Fetch the doubt first so a missing doubt returns 404, not 500
     const doubt = await prisma.doubt.findUnique({
       where: { id },
       include: {
@@ -465,6 +447,30 @@ export const getDoubtById = async (
     if (!doubt) {
       res.status(404).json({ error: "Doubt not found" });
       return;
+    }
+
+    // Track the view in its own try/catch so race conditions (e.g. React
+    // StrictMode double-invoking effects) never cause a 500 for the client.
+    try {
+      const existingView = await prisma.doubtView.findUnique({
+        where: { doubtId_userId: { doubtId: id, userId } },
+      });
+
+      if (!existingView) {
+        await prisma.$transaction([
+          prisma.doubtView.create({ data: { doubtId: id, userId } }),
+          prisma.doubt.update({
+            where: { id },
+            data: { views: { increment: 1 } },
+          }),
+        ]);
+      }
+    } catch (viewError: any) {
+      // P2002 = unique constraint violation: a concurrent request already
+      // created the view record (React StrictMode runs effects twice in dev).
+      if (viewError?.code !== "P2002") {
+        console.error("Error tracking doubt view:", viewError);
+      }
     }
 
     res.json({ doubt });
@@ -594,7 +600,9 @@ export const markAnswerAsAccepted = async (
     }
 
     if (doubt.postedById !== req.user!.id) {
-      res.status(403).json({ error: "Only the doubt owner can accept answers" });
+      res
+        .status(403)
+        .json({ error: "Only the doubt owner can accept answers" });
       return;
     }
 
