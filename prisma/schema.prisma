@@ -102,8 +102,8 @@ model Doubt {
   updatedAt        DateTime    @updatedAt
   editHistory      Json        @default("[]")
   answers          Answer[]
-  viewedBy         DoubtView[]
   postedBy         User        @relation(fields: [postedById], references: [id])
+  viewedBy         DoubtView[]
 }
 
 model Answer {
@@ -125,10 +125,10 @@ model Answer {
 model DoubtView {
   id       String   @id @default(uuid())
   doubtId  String
-  doubt    Doubt    @relation(fields: [doubtId], references: [id], onDelete: Cascade)
   userId   String
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   viewedAt DateTime @default(now())
+  doubt    Doubt    @relation(fields: [doubtId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([doubtId, userId])
   @@index([userId])
