@@ -36,7 +36,7 @@ model StudentProfile {
   department            String
   branch                String
   semester              Int
-  phoneNumber           Int
+  phoneNumber           String
   address               String
   isStudying            Boolean  @default(true)
   guardianName          String

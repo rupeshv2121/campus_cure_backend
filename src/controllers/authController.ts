@@ -67,7 +67,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
             department: "Not Set",
             branch: "Not Set",
             semester: 1,
-            phoneNumber: 0,
+            phoneNumber: "Not Set",
             address: "Not Set",
             guardianName: "Not Set",
             guardianPhone: "Not Set",
