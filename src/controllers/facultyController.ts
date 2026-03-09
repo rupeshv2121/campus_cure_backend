@@ -163,9 +163,21 @@ export const verifyAnswer = async (
   try {
     const answerId = req.params.answerId as string;
 
+    // Get current verification status
+    const currentAnswer = await prisma.answer.findUnique({
+      where: { id: answerId },
+      select: { isVerified: true },
+    });
+
+    if (!currentAnswer) {
+      res.status(404).json({ error: "Answer not found" });
+      return;
+    }
+
+    // Toggle verification status
     const answer = await prisma.answer.update({
       where: { id: answerId },
-      data: { isVerified: true },
+      data: { isVerified: !currentAnswer.isVerified },
       include: {
         answeredBy: {
           select: {
@@ -177,9 +189,13 @@ export const verifyAnswer = async (
       },
     });
 
-    res.json({ message: "Answer verified successfully", answer });
+    const message = answer.isVerified 
+      ? "Answer verified successfully" 
+      : "Answer unverified successfully";
+
+    res.json({ message, answer });
   } catch (error) {
-    console.error("Error verifying answer:", error);
+    console.error("Error toggling answer verification:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -304,6 +320,79 @@ export const editAnswer = async (
     res.json({ message: "Answer updated successfully", answer });
   } catch (error) {
     console.error("Error editing answer:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// 13b. Delete answer
+export const deleteAnswer = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const answerId = req.params.answerId as string;
+
+    // Check if answer exists and belongs to the user
+    const existingAnswer = await prisma.answer.findUnique({
+      where: { id: answerId },
+    });
+
+    if (!existingAnswer) {
+      res.status(404).json({ error: "Answer not found" });
+      return;
+    }
+
+    if (existingAnswer.answeredById !== req.user!.id) {
+      res.status(403).json({ error: "You can only delete your own answers" });
+      return;
+    }
+
+    // Get the doubt to update counts
+    const doubt = await prisma.doubt.findUnique({
+      where: { id: existingAnswer.doubtId },
+    });
+
+    if (!doubt) {
+      res.status(404).json({ error: "Associated doubt not found" });
+      return;
+    }
+
+    // Delete the answer (this will cascade delete answer upvotes due to onDelete: Cascade)
+    await prisma.answer.delete({
+      where: { id: answerId },
+    });
+
+    // Update doubt's answer count and upvote count
+    await prisma.doubt.update({
+      where: { id: existingAnswer.doubtId },
+      data: {
+        answerCount: { decrement: 1 },
+        upVoteCount: { decrement: existingAnswer.upvotes },
+        // If this was the accepted answer, clear it and update status
+        ...(doubt.acceptedAnswerId === answerId ? {
+          acceptedAnswerId: null,
+          status: DoubtStatus.OPEN,
+        } : {}),
+      },
+    });
+
+    // If the answer was accepted, decrement the answerer's doubtsSolved
+    if (existingAnswer.isAccepted) {
+      const answererProfile = await prisma.studentProfile.findUnique({
+        where: { userId: existingAnswer.answeredById },
+      });
+
+      if (answererProfile && answererProfile.doubtsSolved > 0) {
+        await prisma.studentProfile.update({
+          where: { userId: existingAnswer.answeredById },
+          data: { doubtsSolved: { decrement: 1 } },
+        });
+      }
+    }
+
+    res.json({ message: "Answer deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting answer:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

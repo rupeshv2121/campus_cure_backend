@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   createStudentProfile,
+  deleteAnswer,
   deleteDoubt,
   editAnswer,
   editDoubt,
@@ -93,6 +94,9 @@ router.post(
 
 // 19. Edit an answer
 router.put("/answers/:answerId", authenticate, authorize(Role.STUDENT), editAnswer);
+
+// 19b. Delete an answer
+router.delete("/answers/:answerId", authenticate, authorize(Role.STUDENT), deleteAnswer);
 
 // 20. Get student's own answers
 router.get("/answers/my", authenticate, authorize(Role.STUDENT), getMyAnswers);

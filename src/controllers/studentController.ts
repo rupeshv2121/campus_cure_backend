@@ -473,7 +473,33 @@ export const getDoubtById = async (
       }
     }
 
-    res.json({ doubt });
+    // Get the answer IDs that the user has upvoted
+    const userUpvotes = await prisma.answerUpvote.findMany({
+      where: {
+        userId,
+        answerId: {
+          in: doubt.answers.map(a => a.id),
+        },
+      },
+      select: {
+        answerId: true,
+      },
+    });
+
+    const upvotedAnswerIds = new Set(userUpvotes.map(uv => uv.answerId));
+
+    // Add isUpvoted field to each answer
+    const answersWithUpvoteStatus = doubt.answers.map(answer => ({
+      ...answer,
+      isUpvotedByUser: upvotedAnswerIds.has(answer.id),
+    }));
+
+    res.json({ 
+      doubt: {
+        ...doubt,
+        answers: answersWithUpvoteStatus,
+      },
+    });
   } catch (error) {
     console.error("Error fetching doubt:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -616,74 +642,176 @@ export const markAnswerAsAccepted = async (
       return;
     }
 
-    // If there was a previously accepted answer, unmark it
-    if (doubt.acceptedAnswerId) {
-      await prisma.answer.update({
-        where: { id: doubt.acceptedAnswerId },
-        data: { isAccepted: false },
-      });
-    }
+    // Check if this answer is already accepted
+    const isCurrentlyAccepted = answer.isAccepted;
 
-    // Mark the new answer as accepted and update doubt status
-    const [updatedAnswer, updatedDoubt] = await prisma.$transaction([
-      prisma.answer.update({
-        where: { id: answerId },
-        data: { isAccepted: true },
-      }),
-      prisma.doubt.update({
-        where: { id: doubtId },
-        data: {
-          acceptedAnswerId: answerId,
-          status: DoubtStatus.RESOLVED,
-        },
-      }),
-    ]);
+    let updatedAnswer;
+    let updatedDoubt;
+    let message;
 
-    // Update student profile - increment doubtsSolved for the answerer
-    const answererProfile = await prisma.studentProfile.findUnique({
-      where: { userId: answer.answeredById },
-    });
+    if (isCurrentlyAccepted) {
+      // Unaccept the answer
+      [updatedAnswer, updatedDoubt] = await prisma.$transaction([
+        prisma.answer.update({
+          where: { id: answerId },
+          data: { isAccepted: false },
+        }),
+        prisma.doubt.update({
+          where: { id: doubtId },
+          data: {
+            acceptedAnswerId: null,
+            status: doubt.answerCount > 0 ? DoubtStatus.ANSWERED : DoubtStatus.OPEN,
+          },
+        }),
+      ]);
 
-    if (answererProfile) {
-      await prisma.studentProfile.update({
+      // Decrement doubtsSolved for the answerer
+      const answererProfile = await prisma.studentProfile.findUnique({
         where: { userId: answer.answeredById },
-        data: { doubtsSolved: { increment: 1 } },
       });
+
+      if (answererProfile && answererProfile.doubtsSolved > 0) {
+        await prisma.studentProfile.update({
+          where: { userId: answer.answeredById },
+          data: { doubtsSolved: { decrement: 1 } },
+        });
+      }
+
+      message = "Answer unaccepted successfully";
+    } else {
+      // If there was a previously accepted answer, unmark it
+      if (doubt.acceptedAnswerId) {
+        await prisma.answer.update({
+          where: { id: doubt.acceptedAnswerId },
+          data: { isAccepted: false },
+        });
+
+        // Decrement doubtsSolved for the previous answerer
+        const previousAnswer = await prisma.answer.findUnique({
+          where: { id: doubt.acceptedAnswerId },
+        });
+        if (previousAnswer) {
+          const previousAnswererProfile = await prisma.studentProfile.findUnique({
+            where: { userId: previousAnswer.answeredById },
+          });
+          if (previousAnswererProfile && previousAnswererProfile.doubtsSolved > 0) {
+            await prisma.studentProfile.update({
+              where: { userId: previousAnswer.answeredById },
+              data: { doubtsSolved: { decrement: 1 } },
+            });
+          }
+        }
+      }
+
+      // Mark the new answer as accepted and update doubt status
+      [updatedAnswer, updatedDoubt] = await prisma.$transaction([
+        prisma.answer.update({
+          where: { id: answerId },
+          data: { isAccepted: true },
+        }),
+        prisma.doubt.update({
+          where: { id: doubtId },
+          data: {
+            acceptedAnswerId: answerId,
+            status: DoubtStatus.RESOLVED,
+          },
+        }),
+      ]);
+
+      // Update student profile - increment doubtsSolved for the answerer
+      const answererProfile = await prisma.studentProfile.findUnique({
+        where: { userId: answer.answeredById },
+      });
+
+      if (answererProfile) {
+        await prisma.studentProfile.update({
+          where: { userId: answer.answeredById },
+          data: { doubtsSolved: { increment: 1 } },
+        });
+      }
+
+      message = "Answer marked as accepted";
     }
 
     res.json({
-      message: "Answer marked as accepted",
+      message,
       answer: updatedAnswer,
       doubt: updatedDoubt,
     });
   } catch (error) {
-    console.error("Error marking answer as accepted:", error);
+    console.error("Error toggling answer acceptance:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
 
-// 16. Upvote an answer
+// 16. Upvote an answer (toggle)
 export const upvoteAnswer = async (
   req: AuthRequest,
   res: Response,
 ): Promise<void> => {
   try {
     const answerId = req.params.answerId as string;
+    const userId = req.user?.id as string;
 
-    const answer = await prisma.answer.update({
-      where: { id: answerId },
-      data: { upvotes: { increment: 1 } },
+    // Check if user has already upvoted this answer
+    const existingUpvote = await prisma.answerUpvote.findUnique({
+      where: {
+        answerId_userId: {
+          answerId,
+          userId,
+        },
+      },
     });
 
-    // Also update the doubt's upvote count
-    await prisma.doubt.update({
-      where: { id: answer.doubtId },
-      data: { upVoteCount: { increment: 1 } },
-    });
+    let answer;
+    let message;
 
-    res.json({ message: "Answer upvoted successfully", answer });
+    if (existingUpvote) {
+      // User has already upvoted, so remove the upvote (decrement)
+      await prisma.answerUpvote.delete({
+        where: {
+          id: existingUpvote.id,
+        },
+      });
+
+      answer = await prisma.answer.update({
+        where: { id: answerId },
+        data: { upvotes: { decrement: 1 } },
+      });
+
+      // Also update the doubt's upvote count
+      await prisma.doubt.update({
+        where: { id: answer.doubtId },
+        data: { upVoteCount: { decrement: 1 } },
+      });
+
+      message = "Answer upvote removed successfully";
+    } else {
+      // User hasn't upvoted yet, so add the upvote (increment)
+      await prisma.answerUpvote.create({
+        data: {
+          answerId,
+          userId,
+        },
+      });
+
+      answer = await prisma.answer.update({
+        where: { id: answerId },
+        data: { upvotes: { increment: 1 } },
+      });
+
+      // Also update the doubt's upvote count
+      await prisma.doubt.update({
+        where: { id: answer.doubtId },
+        data: { upVoteCount: { increment: 1 } },
+      });
+
+      message = "Answer upvoted successfully";
+    }
+
+    res.json({ message, answer, isUpvoted: !existingUpvote });
   } catch (error) {
-    console.error("Error upvoting answer:", error);
+    console.error("Error toggling answer upvote:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -804,6 +932,79 @@ export const editAnswer = async (
     res.json({ message: "Answer updated successfully", answer });
   } catch (error) {
     console.error("Error editing answer:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// 18b. Delete answer
+export const deleteAnswer = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const answerId = req.params.answerId as string;
+
+    // Check if answer exists and belongs to the user
+    const existingAnswer = await prisma.answer.findUnique({
+      where: { id: answerId },
+    });
+
+    if (!existingAnswer) {
+      res.status(404).json({ error: "Answer not found" });
+      return;
+    }
+
+    if (existingAnswer.answeredById !== req.user!.id) {
+      res.status(403).json({ error: "You can only delete your own answers" });
+      return;
+    }
+
+    // Get the doubt to update counts
+    const doubt = await prisma.doubt.findUnique({
+      where: { id: existingAnswer.doubtId },
+    });
+
+    if (!doubt) {
+      res.status(404).json({ error: "Associated doubt not found" });
+      return;
+    }
+
+    // Delete the answer (this will cascade delete answer upvotes due to onDelete: Cascade)
+    await prisma.answer.delete({
+      where: { id: answerId },
+    });
+
+    // Update doubt's answer count and upvote count
+    await prisma.doubt.update({
+      where: { id: existingAnswer.doubtId },
+      data: {
+        answerCount: { decrement: 1 },
+        upVoteCount: { decrement: existingAnswer.upvotes },
+        // If this was the accepted answer, clear it and update status
+        ...(doubt.acceptedAnswerId === answerId ? {
+          acceptedAnswerId: null,
+          status: DoubtStatus.OPEN,
+        } : {}),
+      },
+    });
+
+    // If the answer was accepted, decrement the answerer's doubtsSolved
+    if (existingAnswer.isAccepted) {
+      const answererProfile = await prisma.studentProfile.findUnique({
+        where: { userId: existingAnswer.answeredById },
+      });
+
+      if (answererProfile && answererProfile.doubtsSolved > 0) {
+        await prisma.studentProfile.update({
+          where: { userId: existingAnswer.answeredById },
+          data: { doubtsSolved: { decrement: 1 } },
+        });
+      }
+    }
+
+    res.json({ message: "Answer deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting answer:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

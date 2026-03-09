@@ -3,6 +3,7 @@ import {
   assignedComplaints,
   createFacultyProfile,
   updateFacultyProfile,
+  deleteAnswer,
   editAnswer,
   getDoubtById,
   getDoubts,
@@ -49,6 +50,14 @@ router.put(
   authenticate,
   authorize(Role.FACULTY),
   editAnswer,
+);
+
+// 14b. Delete an answer
+router.delete(
+  "/answers/:answerId",
+  authenticate,
+  authorize(Role.FACULTY),
+  deleteAnswer,
 );
 
 // 15. Verify an answer
