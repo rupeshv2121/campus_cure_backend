@@ -3,6 +3,7 @@ import { prisma } from "../config/database.js";
 import {
   ApprovalStatus,
   DoubtStatus,
+  Prisma,
   Role,
 } from "../generated/prisma/index.js";
 import type { AuthRequest } from "../types/index.js";
@@ -141,21 +142,77 @@ export const updateStudentProfile = async (
       guardianPhone,
     } = req.body;
 
+    const data: {
+      department?: string;
+      branch?: string;
+      semester?: number;
+      phoneNumber?: string;
+      address?: string;
+      guardianName?: string;
+      guardianPhone?: string;
+    } = {};
+
+    if (department !== undefined) {
+      data.department = String(department).trim();
+    }
+
+    if (branch !== undefined) {
+      data.branch = String(branch).trim();
+    }
+
+    if (semester !== undefined) {
+      const parsedSemester = Number(semester);
+
+      if (
+        !Number.isInteger(parsedSemester) ||
+        parsedSemester < 1 ||
+        parsedSemester > 8
+      ) {
+        res
+          .status(400)
+          .json({ error: "Semester must be an integer between 1 and 8" });
+        return;
+      }
+
+      data.semester = parsedSemester;
+    }
+
+    if (phoneNumber !== undefined) {
+      data.phoneNumber = String(phoneNumber).trim();
+    }
+
+    if (address !== undefined) {
+      data.address = String(address).trim();
+    }
+
+    if (guardianName !== undefined) {
+      data.guardianName = String(guardianName).trim();
+    }
+
+    if (guardianPhone !== undefined) {
+      data.guardianPhone = String(guardianPhone).trim();
+    }
+
+    if (Object.keys(data).length === 0) {
+      res.status(400).json({ error: "No valid fields provided for update" });
+      return;
+    }
+
     const profile = await prisma.studentProfile.update({
       where: { userId: req.user!.id },
-      data: {
-        ...(department && { department }),
-        ...(branch && { branch }),
-        ...(semester && { semester }),
-        ...(phoneNumber && { phoneNumber }),
-        ...(address && { address }),
-        ...(guardianName && { guardianName }),
-        ...(guardianPhone && { guardianPhone }),
-      },
+      data,
     });
 
     res.json({ message: "Profile updated successfully", profile });
   } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2025"
+    ) {
+      res.status(404).json({ error: "Student profile not found" });
+      return;
+    }
+
     console.error("Update student profile error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -272,11 +329,9 @@ export const postDoubt = async (
     const { title, description, semester, subject, labels } = req.body;
 
     if (!title || !description || !semester || !subject) {
-      res
-        .status(400)
-        .json({
-          error: "Title, description, semester, and subject are required",
-        });
+      res.status(400).json({
+        error: "Title, description, semester, and subject are required",
+      });
       return;
     }
 
@@ -478,7 +533,7 @@ export const getDoubtById = async (
       where: {
         userId,
         answerId: {
-          in: doubt.answers.map(a => a.id),
+          in: doubt.answers.map((a) => a.id),
         },
       },
       select: {
@@ -486,15 +541,15 @@ export const getDoubtById = async (
       },
     });
 
-    const upvotedAnswerIds = new Set(userUpvotes.map(uv => uv.answerId));
+    const upvotedAnswerIds = new Set(userUpvotes.map((uv) => uv.answerId));
 
     // Add isUpvoted field to each answer
-    const answersWithUpvoteStatus = doubt.answers.map(answer => ({
+    const answersWithUpvoteStatus = doubt.answers.map((answer) => ({
       ...answer,
       isUpvotedByUser: upvotedAnswerIds.has(answer.id),
     }));
 
-    res.json({ 
+    res.json({
       doubt: {
         ...doubt,
         answers: answersWithUpvoteStatus,
@@ -660,7 +715,8 @@ export const markAnswerAsAccepted = async (
           where: { id: doubtId },
           data: {
             acceptedAnswerId: null,
-            status: doubt.answerCount > 0 ? DoubtStatus.ANSWERED : DoubtStatus.OPEN,
+            status:
+              doubt.answerCount > 0 ? DoubtStatus.ANSWERED : DoubtStatus.OPEN,
           },
         }),
       ]);
@@ -691,10 +747,14 @@ export const markAnswerAsAccepted = async (
           where: { id: doubt.acceptedAnswerId },
         });
         if (previousAnswer) {
-          const previousAnswererProfile = await prisma.studentProfile.findUnique({
-            where: { userId: previousAnswer.answeredById },
-          });
-          if (previousAnswererProfile && previousAnswererProfile.doubtsSolved > 0) {
+          const previousAnswererProfile =
+            await prisma.studentProfile.findUnique({
+              where: { userId: previousAnswer.answeredById },
+            });
+          if (
+            previousAnswererProfile &&
+            previousAnswererProfile.doubtsSolved > 0
+          ) {
             await prisma.studentProfile.update({
               where: { userId: previousAnswer.answeredById },
               data: { doubtsSolved: { decrement: 1 } },
@@ -981,10 +1041,12 @@ export const deleteAnswer = async (
         answerCount: { decrement: 1 },
         upVoteCount: { decrement: existingAnswer.upvotes },
         // If this was the accepted answer, clear it and update status
-        ...(doubt.acceptedAnswerId === answerId ? {
-          acceptedAnswerId: null,
-          status: DoubtStatus.OPEN,
-        } : {}),
+        ...(doubt.acceptedAnswerId === answerId
+          ? {
+              acceptedAnswerId: null,
+              status: DoubtStatus.OPEN,
+            }
+          : {}),
       },
     });
 

@@ -1,6 +1,11 @@
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
-import { ApprovalStatus, Role, DoubtStatus} from "../generated/prisma/index.js";
+import {
+  ApprovalStatus,
+  DoubtStatus,
+  Prisma,
+  Role,
+} from "../generated/prisma/index.js";
 import type { AuthRequest } from "../types/index.js";
 
 // 1. Create Faculty Profile
@@ -117,20 +122,82 @@ export const updateFacultyProfile = async (
     const { department, branch, phoneNumber, address, subjects, isTeaching } =
       req.body;
 
+    const data: {
+      department?: string;
+      branch?: string;
+      phoneNumber?: string;
+      address?: string;
+      subjects?: string[];
+      isTeaching?: boolean;
+    } = {};
+
+    if (department !== undefined) {
+      data.department = String(department).trim();
+    }
+
+    if (branch !== undefined) {
+      data.branch = String(branch).trim();
+    }
+
+    if (phoneNumber !== undefined) {
+      data.phoneNumber = String(phoneNumber).trim();
+    }
+
+    if (address !== undefined) {
+      data.address = String(address).trim();
+    }
+
+    if (subjects !== undefined) {
+      if (Array.isArray(subjects)) {
+        data.subjects = subjects
+          .map((subject) => String(subject).trim())
+          .filter((subject) => subject.length > 0);
+      } else if (typeof subjects === "string") {
+        data.subjects = subjects
+          .split(",")
+          .map((subject) => subject.trim())
+          .filter((subject) => subject.length > 0);
+      } else {
+        res
+          .status(400)
+          .json({
+            error: "Subjects must be an array or comma-separated string",
+          });
+        return;
+      }
+    }
+
+    if (isTeaching !== undefined) {
+      if (typeof isTeaching === "boolean") {
+        data.isTeaching = isTeaching;
+      } else if (isTeaching === "true" || isTeaching === "false") {
+        data.isTeaching = isTeaching === "true";
+      } else {
+        res.status(400).json({ error: "isTeaching must be a boolean" });
+        return;
+      }
+    }
+
+    if (Object.keys(data).length === 0) {
+      res.status(400).json({ error: "No valid fields provided for update" });
+      return;
+    }
+
     const profile = await prisma.facultyProfile.update({
       where: { userId: req.user!.id },
-      data: {
-        ...(department && { department }),
-        ...(branch && { branch }),
-        ...(phoneNumber && { phoneNumber }),
-        ...(address && { address }),
-        ...(subjects && { subjects }),
-        ...(isTeaching !== undefined && { isTeaching }),
-      },
+      data,
     });
 
     res.json({ message: "Profile updated successfully", profile });
   } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2025"
+    ) {
+      res.status(404).json({ error: "Faculty profile not found" });
+      return;
+    }
+
     console.error("Update faculty profile error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -189,8 +256,8 @@ export const verifyAnswer = async (
       },
     });
 
-    const message = answer.isVerified 
-      ? "Answer verified successfully" 
+    const message = answer.isVerified
+      ? "Answer verified successfully"
       : "Answer unverified successfully";
 
     res.json({ message, answer });
@@ -369,10 +436,12 @@ export const deleteAnswer = async (
         answerCount: { decrement: 1 },
         upVoteCount: { decrement: existingAnswer.upvotes },
         // If this was the accepted answer, clear it and update status
-        ...(doubt.acceptedAnswerId === answerId ? {
-          acceptedAnswerId: null,
-          status: DoubtStatus.OPEN,
-        } : {}),
+        ...(doubt.acceptedAnswerId === answerId
+          ? {
+              acceptedAnswerId: null,
+              status: DoubtStatus.OPEN,
+            }
+          : {}),
       },
     });
 
