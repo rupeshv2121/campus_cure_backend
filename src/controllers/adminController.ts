@@ -3,6 +3,65 @@ import { prisma } from "../config/database.js";
 import { AdminLevel, ApprovalStatus, Role } from "../generated/prisma/index.js";
 import type { AuthRequest } from "../types/index.js";
 
+// Get Admin Profile
+export const getAdminProfile = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const profile = await prisma.adminProfile.findUnique({
+      where: { userId: req.user!.id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            username: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (!profile) {
+      res.status(404).json({ error: "Admin profile not found" });
+      return;
+    }
+
+    res.json({ profile });
+  } catch (error) {
+    console.error("Get admin profile error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Update Admin Profile (name)
+export const updateAdminProfile = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { name } = req.body as { name?: string };
+
+    if (!name || !String(name).trim()) {
+      res.status(400).json({ error: "Name is required" });
+      return;
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: req.user!.id },
+      data: { name: String(name).trim() },
+      select: { id: true, name: true, email: true, username: true, role: true },
+    });
+
+    res.json({ user: updatedUser });
+  } catch (error) {
+    console.error("Update admin profile error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
 // 11. Get Pending Students (Admin)
 export const getPendingStudents = async (
   req: AuthRequest,

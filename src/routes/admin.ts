@@ -3,6 +3,8 @@ import {
   approveUser,
   assignComplaint,
   createAdminProfile,
+  getAdminProfile,
+  updateAdminProfile,
   getAllComplaints,
   getAllUsers,
   getAnalytics,
@@ -39,6 +41,22 @@ router.get(
 
 // 13. Create Admin Profile
 router.post("/", createAdminProfile);
+
+// Get Admin Profile
+router.get(
+  "/me",
+  authenticate,
+  authorize(Role.ADMIN, Role.SUPER_ADMIN),
+  getAdminProfile,
+);
+
+// Update Admin Profile
+router.put(
+  "/me",
+  authenticate,
+  authorize(Role.ADMIN, Role.SUPER_ADMIN),
+  updateAdminProfile,
+);
 
 // 14. Get Pending Admins (Super Admin)
 router.get(
