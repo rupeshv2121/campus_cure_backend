@@ -5,11 +5,13 @@ import {
   createAdminProfile,
   getAdminProfile,
   updateAdminProfile,
+  updateAdminPermissions,
   getAllComplaints,
   getAllUsers,
   getAnalytics,
   getApprovedFaculty,
   getDashboardStats,
+  getSuperAdminStats,
   getPendingAdmins,
   getPendingFaculty,
   getPendingStudents,
@@ -56,6 +58,22 @@ router.put(
   authenticate,
   authorize(Role.ADMIN, Role.SUPER_ADMIN),
   updateAdminProfile,
+);
+
+// Super Admin: System-wide stats
+router.get(
+  "/super/stats",
+  authenticate,
+  authorize(Role.SUPER_ADMIN),
+  getSuperAdminStats,
+);
+
+// Super Admin: Update another admin's permissions
+router.put(
+  "/permissions/:adminProfileId",
+  authenticate,
+  authorize(Role.SUPER_ADMIN),
+  updateAdminPermissions,
 );
 
 // 14. Get Pending Admins (Super Admin)

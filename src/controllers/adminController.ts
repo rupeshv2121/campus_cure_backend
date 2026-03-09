@@ -951,3 +951,157 @@ export const updateUserApprovalStatus = async (
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
+// Super Admin: System-wide stats
+export const getSuperAdminStats = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const [
+      totalStudents,
+      totalFaculty,
+      totalAdmins,
+      pendingStudents,
+      pendingFaculty,
+      pendingAdmins,
+      totalComplaints,
+      resolvedComplaints,
+      totalDoubts,
+      adminProfiles,
+    ] = await Promise.all([
+      prisma.user.count({ where: { role: Role.STUDENT } }),
+      prisma.user.count({ where: { role: Role.FACULTY } }),
+      prisma.user.count({ where: { role: Role.ADMIN } }),
+      prisma.user.count({
+        where: { role: Role.STUDENT, approvalStatus: ApprovalStatus.PENDING },
+      }),
+      prisma.user.count({
+        where: { role: Role.FACULTY, approvalStatus: ApprovalStatus.PENDING },
+      }),
+      prisma.user.count({
+        where: { role: Role.ADMIN, approvalStatus: ApprovalStatus.PENDING },
+      }),
+      prisma.complaint.count(),
+      prisma.complaint.count({
+        where: { status: { in: ["RESOLVED", "CLOSED"] } },
+      }),
+      prisma.doubt.count(),
+      prisma.adminProfile.findMany({
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              username: true,
+              approvalStatus: true,
+              isActive: true,
+              createdAt: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
+
+    res.json({
+      stats: {
+        totalStudents,
+        totalFaculty,
+        totalAdmins,
+        pendingStudents,
+        pendingFaculty,
+        pendingAdmins,
+        totalComplaints,
+        resolvedComplaints,
+        totalDoubts,
+        resolutionRate:
+          totalComplaints > 0
+            ? Math.round((resolvedComplaints / totalComplaints) * 100)
+            : 0,
+      },
+      adminProfiles,
+    });
+  } catch (error) {
+    console.error("Get super admin stats error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Super Admin: Update another admin's permissions
+export const updateAdminPermissions = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const adminProfileId = String(req.params.adminProfileId);
+    const {
+      manageUsers,
+      manageComplaints,
+      manageDoubts,
+      viewAnalytics,
+      assignedDepartments,
+      allowedCategories,
+    } = req.body as {
+      manageUsers?: boolean;
+      manageComplaints?: boolean;
+      manageDoubts?: boolean;
+      viewAnalytics?: boolean;
+      assignedDepartments?: string[];
+      allowedCategories?: string[];
+    };
+
+    if (!adminProfileId) {
+      res.status(400).json({ error: "Admin profile ID is required" });
+      return;
+    }
+
+    const profile = await prisma.adminProfile.findUnique({
+      where: { id: adminProfileId },
+    });
+
+    if (!profile) {
+      res.status(404).json({ error: "Admin profile not found" });
+      return;
+    }
+
+    // Cannot modify your own profile through this endpoint
+    if (profile.userId === req.user!.id) {
+      res.status(403).json({ error: "Cannot modify your own permissions" });
+      return;
+    }
+
+    const data: Record<string, unknown> = {};
+    if (manageUsers !== undefined) data.manageUsers = Boolean(manageUsers);
+    if (manageComplaints !== undefined)
+      data.manageComplaints = Boolean(manageComplaints);
+    if (manageDoubts !== undefined) data.manageDoubts = Boolean(manageDoubts);
+    if (viewAnalytics !== undefined)
+      data.viewAnalytics = Boolean(viewAnalytics);
+    if (Array.isArray(assignedDepartments))
+      data.assignedDepartments = assignedDepartments;
+    if (Array.isArray(allowedCategories))
+      data.allowedCategories = allowedCategories;
+
+    if (Object.keys(data).length === 0) {
+      res.status(400).json({ error: "No fields to update" });
+      return;
+    }
+
+    const updated = await prisma.adminProfile.update({
+      where: { id: adminProfileId },
+      data,
+      include: {
+        user: {
+          select: { id: true, name: true, email: true },
+        },
+      },
+    });
+
+    res.json({ profile: updated });
+  } catch (error) {
+    console.error("Update admin permissions error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
