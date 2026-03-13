@@ -16,8 +16,7 @@
         "Access-Control-Allow-Headers": "Content-Type,Authorization",
         "Access-Control-Allow-Credentials": "true"
       },
-      "continue": true,
-      "dest": "api/index.ts"
+      "status": 204
     },
     {
       "src": "/(.*)",
