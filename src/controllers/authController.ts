@@ -1,8 +1,8 @@
+import { AdminLevel, ApprovalStatus, Role } from "@prisma/client";
 import bcrypt from "bcrypt";
 import type { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { JWT_SECRET, prisma } from "../config/database.js";
-import { AdminLevel, ApprovalStatus, Role } from "@prisma/client";
 import type { AuthRequest } from "../types/index.js";
 import { withRetry } from "../utils/retry.js";
 

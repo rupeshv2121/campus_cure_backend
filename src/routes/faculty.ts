@@ -1,8 +1,8 @@
+import { Role } from "@prisma/client";
 import { Router } from "express";
 import {
   assignedComplaints,
   createFacultyProfile,
-  updateFacultyProfile,
   deleteAnswer,
   editAnswer,
   getDoubtById,
@@ -10,10 +10,10 @@ import {
   getFacultyProfile,
   getMyAnswers,
   postAnswer,
+  updateFacultyProfile,
   verifyAnswer,
 } from "../controllers/facultyController.js";
 import { authenticate, authorize } from "../middleware/auth.js";
-import { Role } from "@prisma/client";
 
 const router = Router();
 

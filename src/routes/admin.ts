@@ -1,3 +1,4 @@
+import { Role } from "@prisma/client";
 import { Router } from "express";
 import {
   approveUser,
@@ -23,7 +24,6 @@ import {
   updateComplaintStatus,
   updateUserApprovalStatus,
 } from "../controllers/adminController.js";
-import { Role } from "@prisma/client";
 import { authenticate, authorize } from "../middleware/auth.js";
 
 const router = Router();

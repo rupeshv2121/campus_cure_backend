@@ -1,5 +1,5 @@
-import type { Request } from "express";
 import { Role } from "@prisma/client";
+import type { Request } from "express";
 
 export interface AuthRequest extends Request {
   user?: {

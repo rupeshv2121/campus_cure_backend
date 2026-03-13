@@ -1,3 +1,4 @@
+import { Role } from "@prisma/client";
 import { Router } from "express";
 import {
   createStudentProfile,
@@ -19,7 +20,6 @@ import {
   updateStudentProfile,
   upvoteAnswer,
 } from "../controllers/studentController.js";
-import { Role } from "@prisma/client";
 import { authenticate, authorize } from "../middleware/auth.js";
 
 const router = Router();
@@ -64,7 +64,12 @@ router.get("/doubts/:id", authenticate, authorize(Role.STUDENT), getDoubtById);
 router.put("/doubts/:id", authenticate, authorize(Role.STUDENT), editDoubt);
 
 // 15. Delete a doubt
-router.delete("/doubts/:id", authenticate, authorize(Role.STUDENT), deleteDoubt);
+router.delete(
+  "/doubts/:id",
+  authenticate,
+  authorize(Role.STUDENT),
+  deleteDoubt,
+);
 
 // ========== ANSWERS ==========
 
@@ -93,10 +98,20 @@ router.post(
 );
 
 // 19. Edit an answer
-router.put("/answers/:answerId", authenticate, authorize(Role.STUDENT), editAnswer);
+router.put(
+  "/answers/:answerId",
+  authenticate,
+  authorize(Role.STUDENT),
+  editAnswer,
+);
 
 // 19b. Delete an answer
-router.delete("/answers/:answerId", authenticate, authorize(Role.STUDENT), deleteAnswer);
+router.delete(
+  "/answers/:answerId",
+  authenticate,
+  authorize(Role.STUDENT),
+  deleteAnswer,
+);
 
 // 20. Get student's own answers
 router.get("/answers/my", authenticate, authorize(Role.STUDENT), getMyAnswers);

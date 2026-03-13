@@ -1,5 +1,5 @@
-import { prisma } from "../config/database.js";
 import { NotificationType } from "@prisma/client";
+import { prisma } from "../config/database.js";
 
 export interface CreateNotificationParams {
   userId: string;
