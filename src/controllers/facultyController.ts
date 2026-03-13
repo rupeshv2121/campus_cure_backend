@@ -494,7 +494,7 @@ export const getDoubts = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const { status, subject, semester, search } = req.query;
+    const { status, subject, semester, search, myAnswered } = req.query;
 
     const where: any = {};
 
@@ -515,6 +515,10 @@ export const getDoubts = async (
         { title: { contains: search as string, mode: "insensitive" } },
         { description: { contains: search as string, mode: "insensitive" } },
       ];
+    }
+
+    if (myAnswered === "true") {
+      where.answers = { some: { answeredById: req.user!.id } };
     }
 
     const doubts = await prisma.doubt.findMany({
