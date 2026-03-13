@@ -13,7 +13,7 @@ import {
   verifyAnswer,
 } from "../controllers/facultyController.js";
 import { authenticate, authorize } from "../middleware/auth.js";
-import { Role } from "../generated/prisma/index.js";
+import { Role } from "@prisma/client";
 
 const router = Router();
 

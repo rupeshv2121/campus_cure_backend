@@ -5,7 +5,7 @@ import {
   DoubtStatus,
   Prisma,
   Role,
-} from "../generated/prisma/index.js";
+} from "@prisma/client";
 import type { AuthRequest } from "../types/index.js";
 import { autoAssignComplaint } from "../utils/autoRouting.js";
 import {

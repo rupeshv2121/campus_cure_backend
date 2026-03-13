@@ -23,7 +23,7 @@ import {
   updateComplaintStatus,
   updateUserApprovalStatus,
 } from "../controllers/adminController.js";
-import { Role } from "../generated/prisma/index.js";
+import { Role } from "@prisma/client";
 import { authenticate, authorize } from "../middleware/auth.js";
 
 const router = Router();

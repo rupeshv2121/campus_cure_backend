@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
-import { AdminLevel, ApprovalStatus, Role } from "../generated/prisma/index.js";
+import { AdminLevel, ApprovalStatus, Role } from "@prisma/client";
 import type { AuthRequest } from "../types/index.js";
 import { autoAssignComplaint, getRoutingStats } from "../utils/autoRouting.js";
 import {

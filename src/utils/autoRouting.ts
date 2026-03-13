@@ -4,7 +4,7 @@ import {
   ComplaintCategory,
   ComplaintStatus,
   Role,
-} from "../generated/prisma";
+} from "@prisma/client";
 import { notifyComplaintAssignment } from "./notifications.js";
 
 // Type for user with included relations

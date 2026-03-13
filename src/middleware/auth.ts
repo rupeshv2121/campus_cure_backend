@@ -2,7 +2,7 @@ import type { Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { prisma, JWT_SECRET } from "../config/database.js";
 import type { AuthRequest } from "../types/index.js";
-import { Role } from "../generated/prisma/index.js";
+import { Role } from "@prisma/client";
 
 // Authentication Middleware
 export const authenticate = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
