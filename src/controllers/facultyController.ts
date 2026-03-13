@@ -7,6 +7,7 @@ import {
   Role,
 } from "../generated/prisma/index.js";
 import type { AuthRequest } from "../types/index.js";
+import { notifyDoubtAnswer } from "../utils/notifications.js";
 
 // 1. Create Faculty Profile
 export const createFacultyProfile = async (
@@ -158,11 +159,9 @@ export const updateFacultyProfile = async (
           .map((subject) => subject.trim())
           .filter((subject) => subject.length > 0);
       } else {
-        res
-          .status(400)
-          .json({
-            error: "Subjects must be an array or comma-separated string",
-          });
+        res.status(400).json({
+          error: "Subjects must be an array or comma-separated string",
+        });
         return;
       }
     }
@@ -284,12 +283,19 @@ export const postAnswer = async (
     // Check if doubt exists
     const doubt = await prisma.doubt.findUnique({
       where: { id: doubtId },
+      include: { postedBy: true }, // Include who posted the doubt for notifications
     });
 
     if (!doubt) {
       res.status(404).json({ error: "Doubt not found" });
       return;
     }
+
+    // Get the current user's info for notifications
+    const currentUser = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { name: true },
+    });
 
     // Create answer and update doubt
     const [answer] = await prisma.$transaction([
@@ -321,15 +327,31 @@ export const postAnswer = async (
         data: {
           answerCount: { increment: 1 },
           status: DoubtStatus.ANSWERED,
+          // Update faculty stats
         },
       }),
       prisma.facultyProfile.update({
         where: { userId: req.user!.id },
-        data: { doubtsSolved: { increment: 1 } },
+        data: {
+          doubtsSolved: { increment: 1 },
+        },
       }),
     ]);
 
-    res.status(201).json({ message: "Answer posted successfully", answer });
+    // Send notification to doubt owner (if not answering own doubt)
+    try {
+      if (doubt.postedById !== req.user!.id && currentUser) {
+        await notifyDoubtAnswer(
+          doubt.postedById,
+          doubt.title,
+          currentUser.name,
+          doubtId,
+        );
+      }
+    } catch (notificationError) {
+      console.error("Notification error:", notificationError);
+      // Don't fail the request if notifications fail
+    }
   } catch (error) {
     console.error("Error posting answer:", error);
     res.status(500).json({ error: "Internal server error" });

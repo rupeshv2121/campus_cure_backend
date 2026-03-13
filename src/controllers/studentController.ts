@@ -7,6 +7,11 @@ import {
   Role,
 } from "../generated/prisma/index.js";
 import type { AuthRequest } from "../types/index.js";
+import { autoAssignComplaint } from "../utils/autoRouting.js";
+import {
+  notifyComplaintStatusChange,
+  notifyDoubtAnswer,
+} from "../utils/notifications.js";
 
 // 5. Create Student Profile (Called after basic registration)
 export const createStudentProfile = async (
@@ -270,9 +275,48 @@ export const raiseComplaint = async (
       }),
     ]);
 
-    res
-      .status(201)
-      .json({ message: "Complaint raised successfully", complaint });
+    // Attempt auto-assignment
+    try {
+      const autoAssignResult = await autoAssignComplaint(
+        complaint.id,
+        category,
+        block,
+      );
+
+      if (autoAssignResult.success) {
+        console.log(
+          `Complaint auto-assigned to: ${autoAssignResult.assignedTo?.name}`,
+        );
+
+        // Send notification to the student about assignment
+        await notifyComplaintStatusChange(
+          req.user!.id,
+          complaint.title,
+          "RAISED",
+          "ASSIGNED",
+          complaint.id,
+        );
+
+        res.status(201).json({
+          message: "Complaint raised and auto-assigned successfully",
+          complaint,
+          autoAssigned: true,
+          assignedTo: autoAssignResult.assignedTo,
+        });
+        return;
+      } else {
+        console.log(`Auto-assignment failed: ${autoAssignResult.reason}`);
+      }
+    } catch (autoAssignError) {
+      console.error("Auto-assignment error:", autoAssignError);
+      // Continue with manual assignment flow
+    }
+
+    res.status(201).json({
+      message: "Complaint raised successfully - will be manually assigned",
+      complaint,
+      autoAssigned: false,
+    });
   } catch (error) {
     console.error("Error raising complaint:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -893,12 +937,19 @@ export const postAnswer = async (
     // Check if doubt exists
     const doubt = await prisma.doubt.findUnique({
       where: { id: doubtId },
+      include: { postedBy: true }, // Include who posted the doubt for notifications
     });
 
     if (!doubt) {
       res.status(404).json({ error: "Doubt not found" });
       return;
     }
+
+    // Get the current user's info for notifications
+    const currentUser = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { name: true },
+    });
 
     // Create answer and update doubt
     const [answer] = await prisma.$transaction([
@@ -933,6 +984,21 @@ export const postAnswer = async (
         },
       }),
     ]);
+
+    // Send notification to doubt owner (if not answering own doubt)
+    try {
+      if (doubt.postedById !== req.user!.id && currentUser) {
+        await notifyDoubtAnswer(
+          doubt.postedById,
+          doubt.title,
+          currentUser.name,
+          doubtId,
+        );
+      }
+    } catch (notificationError) {
+      console.error("Notification error:", notificationError);
+      // Don't fail the request if notifications fail
+    }
 
     res.status(201).json({ message: "Answer posted successfully", answer });
   } catch (error) {

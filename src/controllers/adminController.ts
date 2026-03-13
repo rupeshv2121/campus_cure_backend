@@ -2,6 +2,11 @@ import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
 import { AdminLevel, ApprovalStatus, Role } from "../generated/prisma/index.js";
 import type { AuthRequest } from "../types/index.js";
+import { autoAssignComplaint, getRoutingStats } from "../utils/autoRouting.js";
+import {
+  notifyComplaintAssignment,
+  notifyComplaintStatusChange,
+} from "../utils/notifications.js";
 
 // Get Admin Profile
 export const getAdminProfile = async (
@@ -631,6 +636,36 @@ export const getApprovedFaculty = async (
   res: Response,
 ): Promise<void> => {
   try {
+    // First, let's see all faculty in the system for debugging
+    const allFaculty = await prisma.user.findMany({
+      where: {
+        role: Role.FACULTY,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        approvalStatus: true,
+        isActive: true,
+        facultyProfile: {
+          select: {
+            department: true,
+            branch: true,
+          },
+        },
+      },
+    });
+
+    console.log("All faculty in system:", allFaculty.length);
+    console.log(
+      "Faculty details:",
+      allFaculty.map((f) => ({
+        name: f.name,
+        approvalStatus: f.approvalStatus,
+        isActive: f.isActive,
+      })),
+    );
+
     const faculty = await prisma.user.findMany({
       where: {
         role: Role.FACULTY,
@@ -653,7 +688,8 @@ export const getApprovedFaculty = async (
       },
     });
 
-    console.log("Approved faculty:", faculty.length);
+    console.log("Approved and active faculty:", faculty.length);
+    console.log("Approved faculty details:", faculty);
 
     res.json({ faculty });
   } catch (error) {
@@ -680,6 +716,7 @@ export const assignComplaint = async (
     // Verify complaint exists
     const complaint = await prisma.complaint.findUnique({
       where: { id: complaintId },
+      include: { raisedBy: true }, // Include who raised the complaint for notifications
     });
 
     if (!complaint) {
@@ -718,6 +755,24 @@ export const assignComplaint = async (
         },
       }),
     ]);
+
+    // Send notifications
+    try {
+      // Notify the student who raised the complaint
+      await notifyComplaintStatusChange(
+        complaint.raisedById,
+        complaint.title,
+        complaint.status,
+        "ASSIGNED",
+        complaintId,
+      );
+
+      // Notify the faculty member who got assigned
+      await notifyComplaintAssignment(facultyId, complaint.title, complaintId);
+    } catch (notificationError) {
+      console.error("Notification error:", notificationError);
+      // Don't fail the request if notifications fail
+    }
 
     res.json({ message: "Complaint assigned successfully" });
   } catch (error) {
@@ -785,6 +840,7 @@ export const updateComplaintStatus = async (
     // Verify complaint exists
     const complaint = await prisma.complaint.findUnique({
       where: { id: complaintId },
+      include: { raisedBy: true }, // Include who raised the complaint for notifications
     });
 
     if (!complaint) {
@@ -806,6 +862,22 @@ export const updateComplaintStatus = async (
       where: { id: complaintId },
       data: updateData,
     });
+
+    // Send notification for status change
+    try {
+      if (complaint.status !== status) {
+        await notifyComplaintStatusChange(
+          complaint.raisedById,
+          complaint.title,
+          complaint.status,
+          status,
+          complaintId,
+        );
+      }
+    } catch (notificationError) {
+      console.error("Notification error:", notificationError);
+      // Don't fail the request if notifications fail
+    }
 
     // Update admin stats if complaint is being closed
     if (
@@ -1102,6 +1174,126 @@ export const updateAdminPermissions = async (
     res.json({ profile: updated });
   } catch (error) {
     console.error("Update admin permissions error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Debug endpoint to get all faculty for troubleshooting
+export const getAllFacultyDebug = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const allFaculty = await prisma.user.findMany({
+      where: {
+        role: Role.FACULTY,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        approvalStatus: true,
+        isActive: true,
+        createdAt: true,
+        facultyProfile: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    res.json({
+      total: allFaculty.length,
+      faculty: allFaculty,
+      breakdown: {
+        pending: allFaculty.filter((f) => f.approvalStatus === "PENDING")
+          .length,
+        approved: allFaculty.filter((f) => f.approvalStatus === "APPROVED")
+          .length,
+        rejected: allFaculty.filter((f) => f.approvalStatus === "REJECTED")
+          .length,
+        active: allFaculty.filter((f) => f.isActive).length,
+        inactive: allFaculty.filter((f) => !f.isActive).length,
+      },
+    });
+  } catch (error) {
+    console.error("Get all faculty debug error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Get Auto-Routing Statistics
+export const getRoutingStatistics = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const stats = await getRoutingStats();
+    res.json({ success: true, stats });
+  } catch (error) {
+    console.error("Get routing statistics error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Force Auto-Assignment for a Complaint
+export const forceAutoAssignment = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const complaintId = req.params.complaintId as string;
+
+    if (!complaintId) {
+      res.status(400).json({ error: "Complaint ID is required" });
+      return;
+    }
+
+    // Get complaint details
+    const complaint = await prisma.complaint.findUnique({
+      where: { id: complaintId },
+      include: { raisedBy: true },
+    });
+
+    if (!complaint) {
+      res.status(404).json({ error: "Complaint not found" });
+      return;
+    }
+
+    if (complaint.assignedToId) {
+      res.status(400).json({ error: "Complaint is already assigned" });
+      return;
+    }
+
+    // Attempt auto-assignment
+    const result = await autoAssignComplaint(
+      complaintId,
+      complaint.category,
+      complaint.block,
+    );
+
+    if (result.success) {
+      // Send notification to student about assignment
+      await notifyComplaintStatusChange(
+        complaint.raisedById,
+        complaint.title,
+        complaint.status,
+        "ASSIGNED",
+        complaintId,
+      );
+
+      res.json({
+        message: "Complaint auto-assigned successfully",
+        assignedTo: result.assignedTo,
+      });
+    } else {
+      res.status(400).json({
+        error: "Auto-assignment failed",
+        reason: result.reason,
+      });
+    }
+  } catch (error) {
+    console.error("Force auto-assignment error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

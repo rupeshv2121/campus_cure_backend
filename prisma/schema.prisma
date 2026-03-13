@@ -28,6 +28,7 @@ model User {
   doubtViews         DoubtView[]
   facultyProfile     FacultyProfile?
   studentProfile     StudentProfile?
+  notifications      Notification[]
 }
 
 model StudentProfile {
@@ -108,19 +109,19 @@ model Doubt {
 }
 
 model Answer {
-  id           String         @id @default(uuid())
-  doubtId      String
-  content      String
-  answeredById String
-  upvotes      Int            @default(0)
-  isVerified   Boolean        @default(false)
-  isAccepted   Boolean        @default(false)
-  edited       Boolean        @default(false)
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  editHistory  Json           @default("[]")
-  answeredBy   User           @relation(fields: [answeredById], references: [id])
-  doubt        Doubt          @relation(fields: [doubtId], references: [id])
+  id            String         @id @default(uuid())
+  doubtId       String
+  content       String
+  answeredById  String
+  upvotes       Int            @default(0)
+  isVerified    Boolean        @default(false)
+  isAccepted    Boolean        @default(false)
+  edited        Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  editHistory   Json           @default("[]")
+  answeredBy    User           @relation(fields: [answeredById], references: [id])
+  doubt         Doubt          @relation(fields: [doubtId], references: [id])
   answerUpvotes AnswerUpvote[]
 }
 
@@ -138,12 +139,12 @@ model DoubtView {
 }
 
 model AnswerUpvote {
-  id         String   @id @default(uuid())
-  answerId   String
-  userId     String
-  upvotedAt  DateTime @default(now())
-  answer     Answer   @relation(fields: [answerId], references: [id], onDelete: Cascade)
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id @default(uuid())
+  answerId  String
+  userId    String
+  upvotedAt DateTime @default(now())
+  answer    Answer   @relation(fields: [answerId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([answerId, userId])
   @@index([userId])
@@ -214,4 +215,28 @@ enum ComplaintStatus {
 enum AdminLevel {
   SUPER
   NORMAL
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  read      Boolean          @default(false)
+  data      Json? // Store additional data like complaintId, doubtId, etc.
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([createdAt])
+}
+
+enum NotificationType {
+  COMPLAINT_STATUS_UPDATE
+  COMPLAINT_ASSIGNED
+  DOUBT_ANSWER
+  DOUBT_ACCEPTED
+  ANSWER_UPVOTED
+  GENERAL
 }

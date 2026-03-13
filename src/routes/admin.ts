@@ -3,20 +3,23 @@ import {
   approveUser,
   assignComplaint,
   createAdminProfile,
+  forceAutoAssignment,
   getAdminProfile,
-  updateAdminProfile,
-  updateAdminPermissions,
   getAllComplaints,
+  getAllFacultyDebug,
   getAllUsers,
   getAnalytics,
   getApprovedFaculty,
   getDashboardStats,
-  getSuperAdminStats,
   getPendingAdmins,
   getPendingFaculty,
   getPendingStudents,
+  getRoutingStatistics,
+  getSuperAdminStats,
   rejectUser,
   toggleUserActiveStatus,
+  updateAdminPermissions,
+  updateAdminProfile,
   updateComplaintStatus,
   updateUserApprovalStatus,
 } from "../controllers/adminController.js";
@@ -170,6 +173,30 @@ router.put(
   authenticate,
   authorize(Role.ADMIN, Role.SUPER_ADMIN),
   updateUserApprovalStatus,
+);
+
+// 26. Get Auto-Routing Statistics
+router.get(
+  "/routing/stats",
+  authenticate,
+  authorize(Role.ADMIN, Role.SUPER_ADMIN),
+  getRoutingStatistics,
+);
+
+// 27. Force Auto-Assignment for Complaint
+router.post(
+  "/complaints/:complaintId/auto-assign",
+  authenticate,
+  authorize(Role.ADMIN, Role.SUPER_ADMIN),
+  forceAutoAssignment,
+);
+
+// Debug: Get all faculty for troubleshooting
+router.get(
+  "/debug/faculty",
+  authenticate,
+  authorize(Role.ADMIN, Role.SUPER_ADMIN),
+  getAllFacultyDebug,
 );
 
 export default router;
