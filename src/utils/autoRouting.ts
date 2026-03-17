@@ -1,10 +1,10 @@
-import { prisma } from "../config/database.js";
 import {
   ApprovalStatus,
   ComplaintCategory,
   ComplaintStatus,
   Role,
-} from "../generated/prisma";
+} from "@prisma/client";
+import { prisma } from "../config/database.js";
 import { notifyComplaintAssignment } from "./notifications.js";
 
 // Type for user with included relations

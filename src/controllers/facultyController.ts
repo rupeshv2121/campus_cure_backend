@@ -1,11 +1,6 @@
+import { ApprovalStatus, DoubtStatus, Prisma, Role } from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
-import {
-  ApprovalStatus,
-  DoubtStatus,
-  Prisma,
-  Role,
-} from "../generated/prisma/index.js";
 import type { AuthRequest } from "../types/index.js";
 import { notifyDoubtAnswer } from "../utils/notifications.js";
 

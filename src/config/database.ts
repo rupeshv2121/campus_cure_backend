@@ -1,6 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient } from "@prisma/client";
 import pg from "pg";
-import { PrismaClient } from "../generated/prisma/index.js";
 
 // Configure connection pool with optimized settings for Supabase
 const pool = new pg.Pool({

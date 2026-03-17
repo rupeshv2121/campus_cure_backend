@@ -1,11 +1,15 @@
-import type { Response, NextFunction } from "express";
+import { Role } from "@prisma/client";
+import type { NextFunction, Response } from "express";
 import jwt from "jsonwebtoken";
-import { prisma, JWT_SECRET } from "../config/database.js";
+import { JWT_SECRET, prisma } from "../config/database.js";
 import type { AuthRequest } from "../types/index.js";
-import { Role } from "../generated/prisma/index.js";
 
 // Authentication Middleware
-export const authenticate = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+export const authenticate = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
   try {
     const token = req.headers.authorization?.split(" ")[1]; // Bearer <token>
 
@@ -14,7 +18,11 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
       return;
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: string; role: Role; username: string };
+    const decoded = jwt.verify(token, JWT_SECRET) as {
+      id: string;
+      role: Role;
+      username: string;
+    };
 
     // Verify user exists and is active
     const user = await prisma.user.findUnique({
