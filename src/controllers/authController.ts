@@ -225,6 +225,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         email: user.email,
         username: user.username,
         role: user.role,
+        approvalStatus: user.approvalStatus,
+        isActive: true,
       },
     });
   } catch (error) {
@@ -446,6 +448,8 @@ export const faceLogin = async (req: Request, res: Response): Promise<void> => {
         email: bestMatch.email,
         username: bestMatch.username,
         role: bestMatch.role,
+        approvalStatus: bestMatch.approvalStatus,
+        isActive: true,
       },
     });
   } catch (error) {
