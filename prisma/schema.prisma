@@ -76,6 +76,7 @@ model AdminProfile {
   viewAnalytics       Boolean    @default(false)
   assignedDepartments String[]
   allowedCategories   String[]
+  doubtSubjects       String[]   @default([])
   complaintsAssigned  Int        @default(0)
   complaintsClosed    Int        @default(0)
   usersManaged        Int        @default(0)
@@ -90,7 +91,7 @@ model Doubt {
   title            String
   description      String
   semester         Int
-  subject          Subject
+  subject          String
   labels           String[]
   postedById       String
   status           DoubtStatus @default(OPEN)
@@ -154,7 +155,7 @@ model Complaint {
   id              String            @id @default(uuid())
   title           String
   description     String
-  category        ComplaintCategory
+  category        String
   classroomNumber String
   block           String
   status          ComplaintStatus   @default(RAISED)

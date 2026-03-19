@@ -12,6 +12,7 @@ import {
   getMyAnswerForDoubt,
   getMyAnswers,
   getMyDoubts,
+  getStudentPostingSettings,
   getStudentProfile,
   markAnswerAsAccepted,
   postAnswer,
@@ -34,6 +35,14 @@ router.get("/me", authenticate, authorize(Role.STUDENT), getStudentProfile);
 router.put("/me", authenticate, authorize(Role.STUDENT), updateStudentProfile);
 
 // ========== COMPLAINTS ==========
+
+// 7b. Get posting settings
+router.get(
+  "/settings/posting",
+  authenticate,
+  authorize(Role.STUDENT, Role.FACULTY),
+  getStudentPostingSettings,
+);
 
 // 8. Raise Complaint
 router.post(

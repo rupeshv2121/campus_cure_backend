@@ -17,11 +17,13 @@ import {
   getPendingStudents,
   getRoutingStatistics,
   getSuperAdminStats,
+  getSuperAdminSettings,
   rejectUser,
   toggleUserActiveStatus,
   updateAdminPermissions,
   updateAdminProfile,
   updateComplaintStatus,
+  updateSuperAdminSettings,
   updateUserApprovalStatus,
 } from "../controllers/adminController.js";
 import { authenticate, authorize } from "../middleware/auth.js";
@@ -69,6 +71,22 @@ router.get(
   authenticate,
   authorize(Role.SUPER_ADMIN),
   getSuperAdminStats,
+);
+
+// Super Admin: Get system settings
+router.get(
+  "/super/settings",
+  authenticate,
+  authorize(Role.SUPER_ADMIN),
+  getSuperAdminSettings,
+);
+
+// Super Admin: Update system settings
+router.put(
+  "/super/settings",
+  authenticate,
+  authorize(Role.SUPER_ADMIN),
+  updateSuperAdminSettings,
 );
 
 // Super Admin: Update another admin's permissions

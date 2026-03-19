@@ -8,6 +8,82 @@ import {
   notifyDoubtAnswer,
 } from "../utils/notifications.js";
 
+const DEFAULT_ALLOWED_COMPLAINT_CATEGORIES = [
+  "PROJECTOR",
+  "FAN",
+  "LIGHT",
+  "SMART_BOARD",
+  "SEATING",
+  "FURNITURE",
+  "NETWORK",
+  "OTHER",
+];
+
+const DEFAULT_DOUBT_SUBJECTS = ["DSA", "DBMS", "OS", "NETWORKS"];
+
+const getLatestSuperAdminDoubtSubjects = async (): Promise<string[]> => {
+  try {
+    const rows = await prisma.$queryRaw<Array<{ doubtSubjects: string[] | null }>>`
+      SELECT "doubtSubjects"
+      FROM "AdminProfile" ap
+      JOIN "User" u ON u."id" = ap."userId"
+      WHERE u."role" = 'SUPER_ADMIN'
+      ORDER BY ap."updatedAt" DESC
+      LIMIT 1
+    `;
+
+    const subjects = rows[0]?.doubtSubjects;
+    return Array.isArray(subjects) && subjects.length > 0
+      ? subjects
+      : DEFAULT_DOUBT_SUBJECTS;
+  } catch {
+    return DEFAULT_DOUBT_SUBJECTS;
+  }
+};
+
+const getPostingSettings = async (): Promise<{
+  allowedCategories: string[];
+  doubtSubjects: string[];
+}> => {
+  const profile = await prisma.adminProfile.findFirst({
+    where: {
+      user: {
+        role: Role.SUPER_ADMIN,
+      },
+    },
+    select: {
+      allowedCategories: true,
+    },
+    orderBy: {
+      updatedAt: "desc",
+    },
+  });
+
+  const doubtSubjects = await getLatestSuperAdminDoubtSubjects();
+
+  return {
+    allowedCategories:
+      profile && profile.allowedCategories.length > 0
+        ? profile.allowedCategories
+        : DEFAULT_ALLOWED_COMPLAINT_CATEGORIES,
+    doubtSubjects,
+  };
+};
+
+// 7b. Get posting settings for students
+export const getStudentPostingSettings = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const settings = await getPostingSettings();
+    res.json({ settings });
+  } catch (error) {
+    console.error("Get student posting settings error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
 // 5. Create Student Profile (Called after basic registration)
 export const createStudentProfile = async (
   req: Request,
@@ -239,6 +315,14 @@ export const raiseComplaint = async (
       return;
     }
 
+    const { allowedCategories } = await getPostingSettings();
+    if (!allowedCategories.includes(String(category))) {
+      res.status(400).json({
+        error: "Selected complaint category is not allowed",
+      });
+      return;
+    }
+
     console.log("Raising complaint with data:", {
       title,
       description,
@@ -370,6 +454,14 @@ export const postDoubt = async (
     if (!title || !description || !semester || !subject) {
       res.status(400).json({
         error: "Title, description, semester, and subject are required",
+      });
+      return;
+    }
+
+    const { doubtSubjects } = await getPostingSettings();
+    if (!doubtSubjects.includes(String(subject))) {
+      res.status(400).json({
+        error: "Selected subject is not allowed",
       });
       return;
     }

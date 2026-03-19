@@ -8,6 +8,74 @@ import {
   notifyComplaintStatusChange,
 } from "../utils/notifications.js";
 
+const DEFAULT_DEPARTMENTS = [
+  "Computer Science",
+  "Information Technology",
+  "Electronics",
+  "Mechanical",
+];
+
+const DEFAULT_ALLOWED_CATEGORIES = [
+  "PROJECTOR",
+  "FAN",
+  "LIGHT",
+  "SMART_BOARD",
+  "SEATING",
+  "FURNITURE",
+  "NETWORK",
+  "OTHER",
+];
+
+const DEFAULT_DOUBT_SUBJECTS = ["DSA", "DBMS", "OS", "NETWORKS"];
+
+const sanitizeStringArray = (values: unknown): string[] => {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      values
+        .map((value) => String(value).trim())
+        .filter((value) => value.length > 0),
+    ),
+  );
+};
+
+const getDoubtSubjectsByUserId = async (userId: string): Promise<string[]> => {
+  try {
+    const rows = await prisma.$queryRaw<Array<{ doubtSubjects: string[] | null }>>`
+      SELECT "doubtSubjects"
+      FROM "AdminProfile"
+      WHERE "userId" = ${userId}
+      LIMIT 1
+    `;
+
+    const subjects = rows[0]?.doubtSubjects;
+    return Array.isArray(subjects) && subjects.length > 0
+      ? subjects
+      : DEFAULT_DOUBT_SUBJECTS;
+  } catch {
+    // If column/client is temporarily out of sync, fall back safely.
+    return DEFAULT_DOUBT_SUBJECTS;
+  }
+};
+
+const setDoubtSubjectsByUserId = async (
+  userId: string,
+  subjects: string[],
+): Promise<void> => {
+  try {
+    await prisma.$executeRaw`
+      UPDATE "AdminProfile"
+      SET "doubtSubjects" = ${subjects}, "updatedAt" = NOW()
+      WHERE "userId" = ${userId}
+    `;
+  } catch {
+    // No-op to avoid hard-failing settings when deployment/client is out of sync.
+  }
+};
+
 // Get Admin Profile
 export const getAdminProfile = async (
   req: AuthRequest,
@@ -1097,6 +1165,136 @@ export const getSuperAdminStats = async (
     });
   } catch (error) {
     console.error("Get super admin stats error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Super Admin: Get editable system settings
+export const getSuperAdminSettings = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const profile = await prisma.adminProfile.findUnique({
+      where: { userId: req.user!.id },
+      select: {
+        assignedDepartments: true,
+        allowedCategories: true,
+      },
+    });
+
+    const doubtSubjects = await getDoubtSubjectsByUserId(req.user!.id);
+
+    res.json({
+      settings: {
+        departments:
+          profile && profile.assignedDepartments.length > 0
+            ? profile.assignedDepartments
+            : DEFAULT_DEPARTMENTS,
+        allowedCategories:
+          profile && profile.allowedCategories.length > 0
+            ? profile.allowedCategories
+            : DEFAULT_ALLOWED_CATEGORIES,
+        doubtSubjects,
+      },
+    });
+  } catch (error) {
+    console.error("Get super admin settings error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Super Admin: Update editable system settings
+export const updateSuperAdminSettings = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { departments, allowedCategories, doubtSubjects } = req.body as {
+      departments?: unknown;
+      allowedCategories?: unknown;
+      doubtSubjects?: unknown;
+    };
+
+    if (
+      !Array.isArray(departments) ||
+      !Array.isArray(allowedCategories) ||
+      !Array.isArray(doubtSubjects)
+    ) {
+      res.status(400).json({
+        error:
+          "Departments, allowed categories and doubt subjects must be arrays",
+      });
+      return;
+    }
+
+    const sanitizedDepartments = sanitizeStringArray(departments);
+    const sanitizedAllowedCategories = sanitizeStringArray(allowedCategories);
+    const sanitizedDoubtSubjects = sanitizeStringArray(doubtSubjects);
+
+    if (sanitizedDepartments.length === 0) {
+      res.status(400).json({ error: "At least one department is required" });
+      return;
+    }
+
+    if (sanitizedAllowedCategories.length === 0) {
+      res
+        .status(400)
+        .json({ error: "At least one complaint category is required" });
+      return;
+    }
+
+    if (sanitizedDoubtSubjects.length === 0) {
+      res.status(400).json({ error: "At least one doubt subject is required" });
+      return;
+    }
+
+    const existingProfile = await prisma.adminProfile.findUnique({
+      where: { userId: req.user!.id },
+      select: { id: true },
+    });
+
+    const profile = existingProfile
+      ? await prisma.adminProfile.update({
+          where: { userId: req.user!.id },
+          data: {
+            assignedDepartments: sanitizedDepartments,
+            allowedCategories: sanitizedAllowedCategories,
+          },
+          select: {
+            assignedDepartments: true,
+            allowedCategories: true,
+          },
+        })
+      : await prisma.adminProfile.create({
+          data: {
+            userId: req.user!.id,
+            adminLevel: AdminLevel.SUPER,
+            manageUsers: true,
+            manageComplaints: true,
+            manageDoubts: true,
+            viewAnalytics: true,
+            assignedDepartments: sanitizedDepartments,
+            allowedCategories: sanitizedAllowedCategories,
+          },
+          select: {
+            assignedDepartments: true,
+            allowedCategories: true,
+          },
+        });
+
+    await setDoubtSubjectsByUserId(req.user!.id, sanitizedDoubtSubjects);
+
+    res.json({
+      message: "Settings updated successfully",
+      settings: {
+        departments: profile.assignedDepartments,
+        allowedCategories: profile.allowedCategories,
+        doubtSubjects: sanitizedDoubtSubjects,
+      },
+    });
+  } catch (error) {
+    console.error("Update super admin settings error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

@@ -1,6 +1,5 @@
 import {
   ApprovalStatus,
-  ComplaintCategory,
   ComplaintStatus,
   Role,
 } from "@prisma/client";
@@ -20,7 +19,7 @@ type FacultyWithProfile = {
 
 // Auto-routing rules: map complaint categories to departments/subjects
 const ROUTING_RULES: Record<
-  ComplaintCategory,
+  string,
   {
     departments: string[];
     subjects?: string[];
@@ -67,7 +66,7 @@ export interface AutoRoutingResult {
 
 export async function autoAssignComplaint(
   complaintId: string,
-  category: ComplaintCategory,
+  category: string,
   block?: string,
 ): Promise<AutoRoutingResult> {
   try {
@@ -222,7 +221,7 @@ export async function autoAssignComplaint(
 
 export async function getRoutingStats(): Promise<{
   totalAutoAssigned: number;
-  assignmentsByCategory: Record<ComplaintCategory, number>;
+  assignmentsByCategory: Record<string, number>;
   facultyWorkload: Array<{
     facultyId: string;
     name: string;
@@ -252,7 +251,7 @@ export async function getRoutingStats(): Promise<{
         acc[complaint.category] = (acc[complaint.category] || 0) + 1;
         return acc;
       },
-      {} as Record<ComplaintCategory, number>,
+      {} as Record<string, number>,
     );
 
     // Get faculty workload
@@ -289,7 +288,7 @@ export async function getRoutingStats(): Promise<{
     console.error("Error getting routing stats:", error);
     return {
       totalAutoAssigned: 0,
-      assignmentsByCategory: {} as Record<ComplaintCategory, number>,
+      assignmentsByCategory: {} as Record<string, number>,
       facultyWorkload: [],
     };
   }
