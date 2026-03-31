@@ -152,22 +152,25 @@ model AnswerUpvote {
 }
 
 model Complaint {
-  id              String            @id @default(uuid())
-  title           String
-  description     String
-  category        String
-  classroomNumber String
-  block           String
-  status          ComplaintStatus   @default(RAISED)
-  priority        Int
-  raisedById      String
-  assignedToId    String?
-  resolutionNote  String?
-  feedbackRating  Int?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  assignedTo      User?             @relation("AssignedComplaints", fields: [assignedToId], references: [id])
-  raisedBy        User              @relation("RaisedComplaints", fields: [raisedById], references: [id])
+  id                      String          @id @default(uuid())
+  title                   String
+  description             String
+  category                String
+  classroomNumber         String
+  block                   String
+  status                  ComplaintStatus @default(RAISED)
+  priority                Int
+  raisedById              String
+  assignedToId            String?
+  resolutionNote          String?
+  resolutionDate          DateTime?
+  studentConfirmed        Boolean         @default(false)
+  studentConfirmationDate DateTime?
+  feedbackRating          Int?
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+  assignedTo              User?           @relation("AssignedComplaints", fields: [assignedToId], references: [id])
+  raisedBy                User            @relation("RaisedComplaints", fields: [raisedById], references: [id])
 }
 
 enum Role {
@@ -183,31 +186,17 @@ enum ApprovalStatus {
   REJECTED
 }
 
-enum Subject {
-  DSA
-  DBMS
-  OS
-  NETWORKS
-}
-
 enum DoubtStatus {
   OPEN
   ANSWERED
   RESOLVED
 }
 
-enum ComplaintCategory {
-  PROJECTOR
-  FAN
-  LIGHT
-  SMART_BOARD
-  SEATING
-}
-
 enum ComplaintStatus {
   RAISED
   ASSIGNED
   IN_PROGRESS
+  PENDING_CONFIRMATION
   RESOLVED
   CLOSED
 }

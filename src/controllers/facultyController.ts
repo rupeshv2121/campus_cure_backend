@@ -2,7 +2,10 @@ import { ApprovalStatus, DoubtStatus, Prisma, Role } from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
 import type { AuthRequest } from "../types/index.js";
-import { notifyDoubtAnswer } from "../utils/notifications.js";
+import {
+  notifyComplaintStatusChange,
+  notifyDoubtAnswer,
+} from "../utils/notifications.js";
 
 // 1. Create Faculty Profile
 export const createFacultyProfile = async (
@@ -210,6 +213,89 @@ export const assignedComplaints = async (
     res.json({ complaints });
   } catch (error) {
     console.error("Get assigned complaints error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Update Complaint Status (Faculty only - can update to IN_PROGRESS or PENDING_CONFIRMATION)
+export const updateComplaintStatus = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const complaintId = req.params.complaintId as string;
+    const { status, resolutionNote } = req.body;
+
+    if (!complaintId || !status) {
+      res.status(400).json({ error: "Complaint ID and status are required" });
+      return;
+    }
+
+    // Faculty can only move to IN_PROGRESS or PENDING_CONFIRMATION
+    const validFacultyStatuses = ["IN_PROGRESS", "PENDING_CONFIRMATION"];
+    if (!validFacultyStatuses.includes(status)) {
+      res.status(400).json({
+        error:
+          "Faculty can only update status to IN_PROGRESS or PENDING_CONFIRMATION",
+      });
+      return;
+    }
+
+    // Verify complaint exists and is assigned to this faculty
+    const complaint = await prisma.complaint.findUnique({
+      where: { id: complaintId },
+      include: { raisedBy: true },
+    });
+
+    if (!complaint) {
+      res.status(404).json({ error: "Complaint not found" });
+      return;
+    }
+
+    if (complaint.assignedToId !== req.user!.id) {
+      res.status(403).json({ error: "This complaint is not assigned to you" });
+      return;
+    }
+
+    // Update complaint status
+    const updateData: any = {
+      status,
+    };
+
+    // Add resolution note if provided
+    if (resolutionNote) {
+      updateData.resolutionNote = resolutionNote;
+    }
+
+    // Set resolution date when marking as PENDING_CONFIRMATION
+    if (status === "PENDING_CONFIRMATION") {
+      updateData.resolutionDate = new Date();
+    }
+
+    await prisma.complaint.update({
+      where: { id: complaintId },
+      data: updateData,
+    });
+
+    // Send notification for status change
+    try {
+      if (complaint.status !== status) {
+        await notifyComplaintStatusChange(
+          complaint.raisedById,
+          complaint.title,
+          complaint.status,
+          status,
+          complaintId,
+        );
+      }
+    } catch (notificationError) {
+      console.error("Notification error:", notificationError);
+      // Don't fail the request if notifications fail
+    }
+
+    res.json({ message: "Complaint status updated successfully" });
+  } catch (error) {
+    console.error("Update complaint status error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

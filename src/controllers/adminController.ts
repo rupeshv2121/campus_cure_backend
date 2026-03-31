@@ -44,7 +44,9 @@ const sanitizeStringArray = (values: unknown): string[] => {
 
 const getDoubtSubjectsByUserId = async (userId: string): Promise<string[]> => {
   try {
-    const rows = await prisma.$queryRaw<Array<{ doubtSubjects: string[] | null }>>`
+    const rows = await prisma.$queryRaw<
+      Array<{ doubtSubjects: string[] | null }>
+    >`
       SELECT "doubtSubjects"
       FROM "AdminProfile"
       WHERE "userId" = ${userId}
@@ -897,6 +899,7 @@ export const updateComplaintStatus = async (
       "RAISED",
       "ASSIGNED",
       "IN_PROGRESS",
+      "PENDING_CONFIRMATION",
       "RESOLVED",
       "CLOSED",
     ];
@@ -921,9 +924,19 @@ export const updateComplaintStatus = async (
       status,
     };
 
-    // Add resolution note if status is RESOLVED or CLOSED
-    if ((status === "RESOLVED" || status === "CLOSED") && resolutionNote) {
+    // Add resolution note if status is PENDING_CONFIRMATION, RESOLVED or CLOSED
+    if (
+      (status === "PENDING_CONFIRMATION" ||
+        status === "RESOLVED" ||
+        status === "CLOSED") &&
+      resolutionNote
+    ) {
       updateData.resolutionNote = resolutionNote;
+    }
+
+    // Set resolution date when marking as PENDING_CONFIRMATION
+    if (status === "PENDING_CONFIRMATION") {
+      updateData.resolutionDate = new Date();
     }
 
     await prisma.complaint.update({
@@ -947,11 +960,12 @@ export const updateComplaintStatus = async (
       // Don't fail the request if notifications fail
     }
 
-    // Update admin stats if complaint is being closed
+    // Update admin stats if complaint is being closed (not pending confirmation)
     if (
       (status === "RESOLVED" || status === "CLOSED") &&
       complaint.status !== "RESOLVED" &&
-      complaint.status !== "CLOSED"
+      complaint.status !== "CLOSED" &&
+      complaint.status !== "PENDING_CONFIRMATION"
     ) {
       await prisma.adminProfile.update({
         where: { userId: req.user!.id },

@@ -1,6 +1,7 @@
 import { Role } from "@prisma/client";
 import { Router } from "express";
 import {
+  confirmComplaintResolution,
   createStudentProfile,
   deleteAnswer,
   deleteDoubt,
@@ -18,6 +19,7 @@ import {
   postAnswer,
   postDoubt,
   raiseComplaint,
+  rejectComplaintResolution,
   updateStudentProfile,
   upvoteAnswer,
 } from "../controllers/studentController.js";
@@ -131,6 +133,24 @@ router.get(
   authenticate,
   authorize(Role.STUDENT),
   getMyAnswerForDoubt,
+);
+
+// ========== COMPLAINT CONFIRMATION ==========
+
+// 22. Confirm complaint resolution
+router.post(
+  "/complaints/:complaintId/confirm-resolution",
+  authenticate,
+  authorize(Role.STUDENT),
+  confirmComplaintResolution,
+);
+
+// 23. Reject complaint resolution
+router.post(
+  "/complaints/:complaintId/reject-resolution",
+  authenticate,
+  authorize(Role.STUDENT),
+  rejectComplaintResolution,
 );
 
 export default router;

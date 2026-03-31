@@ -23,7 +23,9 @@ const DEFAULT_DOUBT_SUBJECTS = ["DSA", "DBMS", "OS", "NETWORKS"];
 
 const getLatestSuperAdminDoubtSubjects = async (): Promise<string[]> => {
   try {
-    const rows = await prisma.$queryRaw<Array<{ doubtSubjects: string[] | null }>>`
+    const rows = await prisma.$queryRaw<
+      Array<{ doubtSubjects: string[] | null }>
+    >`
       SELECT "doubtSubjects"
       FROM "AdminProfile" ap
       JOIN "User" u ON u."id" = ap."userId"
@@ -1322,6 +1324,169 @@ export const getMyAnswerForDoubt = async (
     res.json({ answer });
   } catch (error) {
     console.error("Error fetching my answer for doubt:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// 22. Confirm Complaint Resolution
+export const confirmComplaintResolution = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const complaintId = req.params.complaintId as string;
+
+    console.log("Confirming resolution for complaint:", complaintId);
+
+    if (!complaintId) {
+      res.status(400).json({ error: "Complaint ID is required" });
+      return;
+    }
+
+    // Verify complaint exists and belongs to the student
+    const complaint = await prisma.complaint.findUnique({
+      where: { id: complaintId },
+      include: { assignedTo: true },
+    });
+
+    if (!complaint) {
+      res.status(404).json({ error: "Complaint not found" });
+      return;
+    }
+
+    if (complaint.raisedById !== req.user!.id) {
+      res
+        .status(403)
+        .json({ error: "You can only confirm your own complaints" });
+      return;
+    }
+
+    if (complaint.status !== "PENDING_CONFIRMATION") {
+      res.status(400).json({
+        error: "Complaint is not pending confirmation",
+      });
+      return;
+    }
+
+    // Update complaint to RESOLVED and mark as confirmed
+    const updatedComplaint = await prisma.complaint.update({
+      where: { id: complaintId },
+      data: {
+        status: "RESOLVED",
+        studentConfirmed: true,
+        studentConfirmationDate: new Date(),
+      },
+    });
+
+    console.log("Complaint confirmed successfully:", updatedComplaint.id);
+
+    // Send notification to the assigned faculty
+    try {
+      if (complaint.assignedTo) {
+        await notifyComplaintStatusChange(
+          complaint.assignedToId!,
+          complaint.title,
+          "PENDING_CONFIRMATION",
+          "RESOLVED",
+          complaintId,
+        );
+        console.log("Confirmation notification sent");
+      }
+    } catch (notificationError) {
+      console.error("Notification error (non-blocking):", notificationError);
+      // Don't fail the request if notifications fail
+    }
+
+    console.log("Sending confirmation success response");
+    res.json({ message: "Complaint confirmed as resolved" });
+  } catch (error) {
+    console.error("Confirm complaint resolution error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// 23. Reject Complaint Resolution
+export const rejectComplaintResolution = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const complaintId = req.params.complaintId as string;
+    const { rejectionReason } = req.body;
+
+    console.log(
+      "Rejecting resolution for complaint:",
+      complaintId,
+      "Reason:",
+      rejectionReason,
+    );
+
+    if (!complaintId) {
+      res.status(400).json({ error: "Complaint ID is required" });
+      return;
+    }
+
+    // Verify complaint exists and belongs to the student
+    const complaint = await prisma.complaint.findUnique({
+      where: { id: complaintId },
+      include: { assignedTo: true },
+    });
+
+    if (!complaint) {
+      res.status(404).json({ error: "Complaint not found" });
+      return;
+    }
+
+    if (complaint.raisedById !== req.user!.id) {
+      res
+        .status(403)
+        .json({ error: "You can only reject your own complaints" });
+      return;
+    }
+
+    if (complaint.status !== "PENDING_CONFIRMATION") {
+      res.status(400).json({
+        error: "Complaint is not pending confirmation",
+      });
+      return;
+    }
+
+    // Update complaint back to IN_PROGRESS
+    const updatedComplaint = await prisma.complaint.update({
+      where: { id: complaintId },
+      data: {
+        status: "IN_PROGRESS",
+        resolutionNote: rejectionReason
+          ? `${complaint.resolutionNote || ""}\n\nStudent Rejection: ${rejectionReason}`
+          : complaint.resolutionNote,
+      },
+    });
+
+    console.log("Complaint updated successfully:", updatedComplaint.id);
+
+    // Send notification to the assigned faculty about rejection
+    try {
+      if (complaint.assignedTo) {
+        await notifyComplaintStatusChange(
+          complaint.assignedToId!,
+          complaint.title,
+          "PENDING_CONFIRMATION",
+          "IN_PROGRESS",
+          complaintId,
+        );
+        console.log("Notification sent successfully");
+      }
+    } catch (notificationError) {
+      console.error("Notification error (non-blocking):", notificationError);
+      // Don't fail the request if notification fails
+    }
+
+    console.log("Sending success response");
+    res.json({
+      message: "Complaint resolution rejected. Moved back to in-progress",
+    });
+  } catch (error) {
+    console.error("Reject complaint resolution error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

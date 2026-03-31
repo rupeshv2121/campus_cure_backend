@@ -10,6 +10,7 @@ import {
   getFacultyProfile,
   getMyAnswers,
   postAnswer,
+  updateComplaintStatus,
   updateFacultyProfile,
   verifyAnswer,
 } from "../controllers/facultyController.js";
@@ -71,12 +72,22 @@ router.post(
 // 16. Get faculty's answers
 router.get("/answers/my", authenticate, authorize(Role.FACULTY), getMyAnswers);
 
-export default router;
+// ========== COMPLAINTS ==========
 
-// 11. Get Complaints Assigned to Faculty
+// 17. Get Complaints Assigned to Faculty
 router.get(
   "/complaints",
   authenticate,
   authorize(Role.FACULTY),
   assignedComplaints,
 );
+
+// 18. Update Complaint Status (Faculty only - IN_PROGRESS or PENDING_CONFIRMATION)
+router.put(
+  "/complaints/:complaintId/status",
+  authenticate,
+  authorize(Role.FACULTY),
+  updateComplaintStatus,
+);
+
+export default router;
