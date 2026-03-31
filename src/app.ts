@@ -1,6 +1,7 @@
 import cors from "cors";
 import express from "express";
 import routes from "./routes/index.js";
+import { prisma } from "./config/database.js";
 
 const app = express();
 
@@ -29,6 +30,17 @@ app.use(routes);
 
 app.get("/", (_req, res) => {
   res.send("Hello from TypeScript backend 🚀");
+});
+
+// Keep DB alive endpoint - hit this URL to ensure DB pool gets activity
+app.get("/keep-db-alive", async (_req, res) => {
+  try {
+    // Query a lightweight table for a single id to warm up connections
+    await prisma.user.findFirst({ select: { id: true } });
+    res.json({ status: "DB active" });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? String(err) });
+  }
 });
 
 export default app;
