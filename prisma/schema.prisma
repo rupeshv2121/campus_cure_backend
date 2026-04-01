@@ -167,6 +167,11 @@ model Complaint {
   studentConfirmed        Boolean         @default(false)
   studentConfirmationDate DateTime?
   feedbackRating          Int?
+  studentRejectionMessage String?
+  escalationCount         Int             @default(0)
+  handledBySuperAdmin     Boolean         @default(false)
+  superAdminId            String?
+  rejectionHistory        Json            @default("[]")
   createdAt               DateTime        @default(now())
   updatedAt               DateTime        @updatedAt
   assignedTo              User?           @relation("AssignedComplaints", fields: [assignedToId], references: [id])
@@ -197,6 +202,10 @@ enum ComplaintStatus {
   ASSIGNED
   IN_PROGRESS
   PENDING_CONFIRMATION
+  PENDING_STUDENT_APPROVAL
+  REJECTED_BY_STUDENT
+  ESCALATED_TO_SUPERADMIN
+  HANDLED_BY_SUPERADMIN
   RESOLVED
   CLOSED
 }

@@ -217,7 +217,7 @@ export const assignedComplaints = async (
   }
 };
 
-// Update Complaint Status (Faculty only - can update to IN_PROGRESS or PENDING_CONFIRMATION)
+// Update Complaint Status (Faculty only - can update to IN_PROGRESS or PENDING_STUDENT_APPROVAL)
 export const updateComplaintStatus = async (
   req: AuthRequest,
   res: Response,
@@ -231,12 +231,16 @@ export const updateComplaintStatus = async (
       return;
     }
 
-    // Faculty can only move to IN_PROGRESS or PENDING_CONFIRMATION
-    const validFacultyStatuses = ["IN_PROGRESS", "PENDING_CONFIRMATION"];
+    // Faculty can only move to IN_PROGRESS, PENDING_CONFIRMATION (old), or PENDING_STUDENT_APPROVAL (new)
+    const validFacultyStatuses = [
+      "IN_PROGRESS",
+      "PENDING_CONFIRMATION",
+      "PENDING_STUDENT_APPROVAL",
+    ];
     if (!validFacultyStatuses.includes(status)) {
       res.status(400).json({
         error:
-          "Faculty can only update status to IN_PROGRESS or PENDING_CONFIRMATION",
+          "Faculty can only update status to IN_PROGRESS or PENDING_STUDENT_APPROVAL",
       });
       return;
     }
@@ -267,9 +271,14 @@ export const updateComplaintStatus = async (
       updateData.resolutionNote = resolutionNote;
     }
 
-    // Set resolution date when marking as PENDING_CONFIRMATION
-    if (status === "PENDING_CONFIRMATION") {
+    // Set resolution date when marking as PENDING_STUDENT_APPROVAL or PENDING_CONFIRMATION
+    if (
+      status === "PENDING_STUDENT_APPROVAL" ||
+      status === "PENDING_CONFIRMATION"
+    ) {
       updateData.resolutionDate = new Date();
+      // Reset handledBySuperAdmin flag when faculty provides new resolution
+      updateData.handledBySuperAdmin = false;
     }
 
     await prisma.complaint.update({

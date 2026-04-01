@@ -8,3 +8,9 @@ export interface AuthRequest extends Request {
     username: string;
   };
 }
+
+export interface RejectionHistoryEntry {
+  timestamp: string;
+  reason: string;
+  studentName: string;
+}

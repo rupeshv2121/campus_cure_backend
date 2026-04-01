@@ -92,6 +92,11 @@ export async function notifyComplaintStatusChange(
   const statusMessages = {
     ASSIGNED: "has been assigned to a faculty member",
     IN_PROGRESS: "is now being worked on",
+    PENDING_CONFIRMATION: "is awaiting your confirmation",
+    PENDING_STUDENT_APPROVAL: "is awaiting your approval",
+    REJECTED_BY_STUDENT: "was rejected by the student",
+    ESCALATED_TO_SUPERADMIN: "has been escalated to Super Admin",
+    HANDLED_BY_SUPERADMIN: "is being handled by Super Admin",
     RESOLVED: "has been resolved",
     CLOSED: "has been closed",
   };

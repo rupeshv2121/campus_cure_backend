@@ -1,9 +1,10 @@
-import { AdminLevel, ApprovalStatus, Role } from "@prisma/client";
+import { AdminLevel, ApprovalStatus, ComplaintStatus, Role } from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
 import type { AuthRequest } from "../types/index.js";
 import { autoAssignComplaint, getRoutingStats } from "../utils/autoRouting.js";
 import {
+  createNotification,
   notifyComplaintAssignment,
   notifyComplaintStatusChange,
 } from "../utils/notifications.js";
@@ -659,7 +660,30 @@ export const getAllComplaints = async (
   res: Response,
 ): Promise<void> => {
   try {
+    const userRole = req.user!.role;
+    
+    // Build filter based on role
+    let whereClause: any = {};
+    
+    // Regular admins should not see complaints escalated to superadmin
+    if (userRole === Role.ADMIN) {
+      whereClause = {
+        AND: [
+          {
+            status: {
+              notIn: ["ESCALATED_TO_SUPERADMIN", "HANDLED_BY_SUPERADMIN"],
+            },
+          },
+          {
+            handledBySuperAdmin: false,
+          },
+        ],
+      };
+    }
+    // SuperAdmins can see all complaints (no filter needed)
+    
     const complaints = await prisma.complaint.findMany({
+      where: whereClause,
       include: {
         raisedBy: {
           select: {
@@ -894,12 +918,16 @@ export const updateComplaintStatus = async (
       return;
     }
 
-    // Validate status
+    // Validate status - include all new statuses
     const validStatuses = [
       "RAISED",
       "ASSIGNED",
       "IN_PROGRESS",
       "PENDING_CONFIRMATION",
+      "PENDING_STUDENT_APPROVAL",
+      "REJECTED_BY_STUDENT",
+      "ESCALATED_TO_SUPERADMIN",
+      "HANDLED_BY_SUPERADMIN",
       "RESOLVED",
       "CLOSED",
     ];
@@ -924,9 +952,10 @@ export const updateComplaintStatus = async (
       status,
     };
 
-    // Add resolution note if status is PENDING_CONFIRMATION, RESOLVED or CLOSED
+    // Add resolution note if status is PENDING_CONFIRMATION, PENDING_STUDENT_APPROVAL, RESOLVED or CLOSED
     if (
       (status === "PENDING_CONFIRMATION" ||
+        status === "PENDING_STUDENT_APPROVAL" ||
         status === "RESOLVED" ||
         status === "CLOSED") &&
       resolutionNote
@@ -934,8 +963,11 @@ export const updateComplaintStatus = async (
       updateData.resolutionNote = resolutionNote;
     }
 
-    // Set resolution date when marking as PENDING_CONFIRMATION
-    if (status === "PENDING_CONFIRMATION") {
+    // Set resolution date when marking as PENDING_CONFIRMATION or PENDING_STUDENT_APPROVAL
+    if (
+      status === "PENDING_CONFIRMATION" ||
+      status === "PENDING_STUDENT_APPROVAL"
+    ) {
       updateData.resolutionDate = new Date();
     }
 
@@ -965,7 +997,8 @@ export const updateComplaintStatus = async (
       (status === "RESOLVED" || status === "CLOSED") &&
       complaint.status !== "RESOLVED" &&
       complaint.status !== "CLOSED" &&
-      complaint.status !== "PENDING_CONFIRMATION"
+      complaint.status !== "PENDING_CONFIRMATION" &&
+      complaint.status !== "PENDING_STUDENT_APPROVAL"
     ) {
       await prisma.adminProfile.update({
         where: { userId: req.user!.id },
@@ -1506,6 +1539,220 @@ export const forceAutoAssignment = async (
     }
   } catch (error) {
     console.error("Force auto-assignment error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// ============ SUPER ADMIN COMPLAINT FUNCTIONS ============
+
+// Get Escalated Complaints (Super Admin Only)
+export const getEscalatedComplaints = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const escalatedComplaints = await prisma.complaint.findMany({
+      where: {
+        OR: [
+          { status: "REJECTED_BY_STUDENT" },
+          { status: "ESCALATED_TO_SUPERADMIN" },
+          { status: "HANDLED_BY_SUPERADMIN" },
+          { handledBySuperAdmin: true },
+        ],
+      },
+      include: {
+        raisedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            studentProfile: {
+              select: {
+                enrollmentNumber: true,
+                department: true,
+                branch: true,
+              },
+            },
+          },
+        },
+        assignedTo: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            facultyProfile: {
+              select: {
+                department: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: [
+        { escalationCount: "desc" }, // Most escalated first
+        { createdAt: "desc" },
+      ],
+    });
+
+    res.json({ complaints: escalatedComplaints });
+  } catch (error) {
+    console.error("Get escalated complaints error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Reassign Escalated Complaint (Super Admin Only)
+export const reassignEscalatedComplaint = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { complaintId, facultyId, superAdminNote } = req.body;
+
+    if (!complaintId || !facultyId) {
+      res
+        .status(400)
+        .json({ error: "Complaint ID and Faculty ID are required" });
+      return;
+    }
+
+    // Verify complaint exists and is escalated
+    const complaint = await prisma.complaint.findUnique({
+      where: { id: complaintId },
+      include: { raisedBy: true, assignedTo: true },
+    });
+
+    if (!complaint) {
+      res.status(404).json({ error: "Complaint not found" });
+      return;
+    }
+
+    // Verify faculty exists and is approved
+    const faculty = await prisma.user.findUnique({
+      where: { id: facultyId },
+      include: { facultyProfile: true },
+    });
+
+    if (
+      !faculty ||
+      faculty.role !== Role.FACULTY ||
+      faculty.approvalStatus !== ApprovalStatus.APPROVED
+    ) {
+      res.status(400).json({ error: "Invalid faculty member" });
+      return;
+    }
+
+    // Update complaint - mark as handled by superadmin and reassign
+    const updateData: any = {
+      assignedToId: facultyId,
+      status: "HANDLED_BY_SUPERADMIN",
+      handledBySuperAdmin: true,
+      superAdminId: req.user!.id,
+    };
+
+    // Add superadmin note to resolution notes
+    if (superAdminNote) {
+      updateData.resolutionNote = `${complaint.resolutionNote || ""}\n\n[${new Date().toLocaleString()}] SuperAdmin Note: ${superAdminNote}`;
+    }
+
+    await prisma.complaint.update({
+      where: { id: complaintId },
+      data: updateData,
+    });
+
+    // Send notifications
+    try {
+      // Notify the student
+      await createNotification({
+        userId: complaint.raisedById,
+        type: "COMPLAINT_STATUS_UPDATE",
+        title: "Complaint Reassigned by Super Admin",
+        message: `Your complaint "${complaint.title}" has been reassigned to ${faculty.name} by Super Admin for resolution.`,
+        data: { complaintId, newFacultyId: facultyId },
+      });
+
+      // Notify the new faculty member
+      await notifyComplaintAssignment(facultyId, complaint.title, complaintId);
+
+      // If there was a previous faculty, notify them too
+      if (complaint.assignedToId && complaint.assignedToId !== facultyId) {
+        await createNotification({
+          userId: complaint.assignedToId,
+          type: "COMPLAINT_STATUS_UPDATE",
+          title: "Complaint Reassigned",
+          message: `Complaint "${complaint.title}" has been reassigned to another faculty member by Super Admin.`,
+          data: { complaintId },
+        });
+      }
+    } catch (notificationError) {
+      console.error("Notification error:", notificationError);
+      // Don't fail the request if notifications fail
+    }
+
+    res.json({
+      message: "Complaint reassigned successfully by Super Admin",
+      assignedTo: faculty.name,
+    });
+  } catch (error) {
+    console.error("Reassign escalated complaint error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Mark Escalated Complaint as Handled (Super Admin takes over)
+export const markComplaintAsHandled = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { complaintId, action } = req.body;
+
+    if (!complaintId) {
+      res.status(400).json({ error: "Complaint ID is required" });
+      return;
+    }
+
+    const complaint = await prisma.complaint.findUnique({
+      where: { id: complaintId },
+      include: { raisedBy: true, assignedTo: true },
+    });
+
+    if (!complaint) {
+      res.status(404).json({ error: "Complaint not found" });
+      return;
+    }
+
+    // Update status based on action
+    let newStatus: ComplaintStatus = ComplaintStatus.HANDLED_BY_SUPERADMIN;
+    if (action === "escalate") {
+      newStatus = ComplaintStatus.ESCALATED_TO_SUPERADMIN;
+    }
+
+    await prisma.complaint.update({
+      where: { id: complaintId },
+      data: {
+        status: newStatus,
+        handledBySuperAdmin: true,
+        superAdminId: req.user!.id,
+      },
+    });
+
+    // Notify student
+    try {
+      await createNotification({
+        userId: complaint.raisedById,
+        type: "COMPLAINT_STATUS_UPDATE",
+        title: "Complaint Escalated to Super Admin",
+        message: `Your complaint "${complaint.title}" is now being handled by Super Admin.`,
+        data: { complaintId },
+      });
+    } catch (notificationError) {
+      console.error("Notification error:", notificationError);
+    }
+
+    res.json({ message: "Complaint marked as handled by Super Admin" });
+  } catch (error) {
+    console.error("Mark complaint as handled error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

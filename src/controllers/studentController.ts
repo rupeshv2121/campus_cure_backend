@@ -1,9 +1,10 @@
 import { ApprovalStatus, DoubtStatus, Prisma, Role } from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
-import type { AuthRequest } from "../types/index.js";
+import type { AuthRequest, RejectionHistoryEntry } from "../types/index.js";
 import { autoAssignComplaint } from "../utils/autoRouting.js";
 import {
+  createNotification,
   notifyComplaintStatusChange,
   notifyDoubtAnswer,
 } from "../utils/notifications.js";
@@ -1361,9 +1362,13 @@ export const confirmComplaintResolution = async (
       return;
     }
 
-    if (complaint.status !== "PENDING_CONFIRMATION") {
+    // Accept both old and new status names for backward compatibility
+    if (
+      complaint.status !== "PENDING_CONFIRMATION" &&
+      complaint.status !== "PENDING_STUDENT_APPROVAL"
+    ) {
       res.status(400).json({
-        error: "Complaint is not pending confirmation",
+        error: "Complaint is not pending your approval",
       });
       return;
     }
@@ -1375,22 +1380,42 @@ export const confirmComplaintResolution = async (
         status: "RESOLVED",
         studentConfirmed: true,
         studentConfirmationDate: new Date(),
+        handledBySuperAdmin: false, // Reset superadmin handling flag
       },
     });
 
     console.log("Complaint confirmed successfully:", updatedComplaint.id);
 
-    // Send notification to the assigned faculty
+    // Send notification to the assigned faculty and admin
     try {
       if (complaint.assignedTo) {
         await notifyComplaintStatusChange(
           complaint.assignedToId!,
           complaint.title,
-          "PENDING_CONFIRMATION",
+          complaint.status,
           "RESOLVED",
           complaintId,
         );
-        console.log("Confirmation notification sent");
+        console.log("Confirmation notification sent to faculty");
+      }
+      
+      // Notify admin that complaint is resolved
+      const admins = await prisma.user.findMany({
+        where: { 
+          role: { in: [Role.ADMIN, Role.SUPER_ADMIN] },
+          isActive: true 
+        },
+        select: { id: true },
+      });
+      
+      for (const admin of admins) {
+        await notifyComplaintStatusChange(
+          admin.id,
+          complaint.title,
+          complaint.status,
+          "RESOLVED",
+          complaintId,
+        );
       }
     } catch (notificationError) {
       console.error("Notification error (non-blocking):", notificationError);
@@ -1426,10 +1451,15 @@ export const rejectComplaintResolution = async (
       return;
     }
 
+    if (!rejectionReason || rejectionReason.trim() === "") {
+      res.status(400).json({ error: "Rejection reason is required" });
+      return;
+    }
+
     // Verify complaint exists and belongs to the student
     const complaint = await prisma.complaint.findUnique({
       where: { id: complaintId },
-      include: { assignedTo: true },
+      include: { assignedTo: true, raisedBy: true },
     });
 
     if (!complaint) {
@@ -1444,38 +1474,95 @@ export const rejectComplaintResolution = async (
       return;
     }
 
-    if (complaint.status !== "PENDING_CONFIRMATION") {
+    // Accept both old and new status names for backward compatibility
+    if (
+      complaint.status !== "PENDING_CONFIRMATION" &&
+      complaint.status !== "PENDING_STUDENT_APPROVAL"
+    ) {
       res.status(400).json({
-        error: "Complaint is not pending confirmation",
+        error: "Complaint is not pending your approval",
       });
       return;
     }
 
-    // Update complaint back to IN_PROGRESS
+    // Parse existing rejection history
+    let rejectionHistory: RejectionHistoryEntry[] = [];
+    try {
+      rejectionHistory =
+        typeof complaint.rejectionHistory === "string"
+          ? JSON.parse(complaint.rejectionHistory)
+          : Array.isArray(complaint.rejectionHistory)
+            ? complaint.rejectionHistory
+            : [];
+    } catch {
+      rejectionHistory = [];
+    }
+
+    // Add new rejection to history
+    rejectionHistory.push({
+      timestamp: new Date().toISOString(),
+      reason: rejectionReason,
+      studentName: complaint.raisedBy.name,
+    });
+
+    // Update complaint to REJECTED_BY_STUDENT and escalate to SUPERADMIN
     const updatedComplaint = await prisma.complaint.update({
       where: { id: complaintId },
       data: {
-        status: "IN_PROGRESS",
+        status: "REJECTED_BY_STUDENT",
+        studentRejectionMessage: rejectionReason,
+        escalationCount: { increment: 1 },
+        rejectionHistory: rejectionHistory as unknown as Prisma.InputJsonValue,
         resolutionNote: rejectionReason
-          ? `${complaint.resolutionNote || ""}\n\nStudent Rejection: ${rejectionReason}`
+          ? `${complaint.resolutionNote || ""}\n\n[${new Date().toLocaleString()}] Student Rejection: ${rejectionReason}`
           : complaint.resolutionNote,
       },
     });
 
-    console.log("Complaint updated successfully:", updatedComplaint.id);
+    console.log("Complaint rejected and escalated:", updatedComplaint.id);
 
-    // Send notification to the assigned faculty about rejection
+    // Send notifications
     try {
+      // Notify the assigned faculty about rejection
       if (complaint.assignedTo) {
         await notifyComplaintStatusChange(
           complaint.assignedToId!,
           complaint.title,
-          "PENDING_CONFIRMATION",
-          "IN_PROGRESS",
+          complaint.status,
+          "REJECTED_BY_STUDENT",
           complaintId,
         );
-        console.log("Notification sent successfully");
+        console.log("Notification sent to faculty");
       }
+
+      // Notify all superadmins about the escalation
+      const superAdmins = await prisma.user.findMany({
+        where: {
+          role: Role.SUPER_ADMIN,
+          isActive: true,
+        },
+        select: { id: true },
+      });
+
+      console.log(`Found ${superAdmins.length} superadmins to notify`);
+
+      for (const superAdmin of superAdmins) {
+        await createNotification({
+          userId: superAdmin.id,
+          type: "COMPLAINT_STATUS_UPDATE",
+          title: "Complaint Rejected by Student - Escalated",
+          message: `Complaint "${complaint.title}" was rejected by student ${complaint.raisedBy.name}. Reason: ${rejectionReason}`,
+          data: {
+            complaintId,
+            oldStatus: complaint.status,
+            newStatus: "REJECTED_BY_STUDENT",
+            rejectionReason,
+            escalationCount: updatedComplaint.escalationCount,
+          },
+        });
+      }
+
+      console.log("Escalation notifications sent to superadmins");
     } catch (notificationError) {
       console.error("Notification error (non-blocking):", notificationError);
       // Don't fail the request if notification fails
@@ -1483,7 +1570,8 @@ export const rejectComplaintResolution = async (
 
     console.log("Sending success response");
     res.json({
-      message: "Complaint resolution rejected. Moved back to in-progress",
+      message:
+        "Complaint resolution rejected and escalated to Super Admin for review",
     });
   } catch (error) {
     console.error("Reject complaint resolution error:", error);

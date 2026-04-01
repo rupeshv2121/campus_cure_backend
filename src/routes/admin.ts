@@ -12,12 +12,15 @@ import {
   getAnalytics,
   getApprovedFaculty,
   getDashboardStats,
+  getEscalatedComplaints,
   getPendingAdmins,
   getPendingFaculty,
   getPendingStudents,
   getRoutingStatistics,
   getSuperAdminStats,
   getSuperAdminSettings,
+  markComplaintAsHandled,
+  reassignEscalatedComplaint,
   rejectUser,
   toggleUserActiveStatus,
   updateAdminPermissions,
@@ -215,6 +218,32 @@ router.get(
   authenticate,
   authorize(Role.ADMIN, Role.SUPER_ADMIN),
   getAllFacultyDebug,
+);
+
+// ============ SUPER ADMIN COMPLAINT ESCALATION ROUTES ============
+
+// Get Escalated Complaints (Super Admin Only)
+router.get(
+  "/complaints/escalated",
+  authenticate,
+  authorize(Role.SUPER_ADMIN),
+  getEscalatedComplaints,
+);
+
+// Reassign Escalated Complaint (Super Admin Only)
+router.post(
+  "/complaints/escalated/reassign",
+  authenticate,
+  authorize(Role.SUPER_ADMIN),
+  reassignEscalatedComplaint,
+);
+
+// Mark Complaint as Handled by Super Admin
+router.post(
+  "/complaints/escalated/mark-handled",
+  authenticate,
+  authorize(Role.SUPER_ADMIN),
+  markComplaintAsHandled,
 );
 
 export default router;
