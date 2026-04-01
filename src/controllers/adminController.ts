@@ -760,16 +760,17 @@ export const getApprovedFaculty = async (
       })),
     );
 
+    // Return every faculty regardless of current workload so SuperAdmin/Admin can reassign freely
     const faculty = await prisma.user.findMany({
       where: {
         role: Role.FACULTY,
-        approvalStatus: ApprovalStatus.APPROVED,
-        isActive: true,
       },
       select: {
         id: true,
         name: true,
         email: true,
+        approvalStatus: true,
+        isActive: true,
         facultyProfile: {
           select: {
             department: true,
@@ -782,8 +783,8 @@ export const getApprovedFaculty = async (
       },
     });
 
-    console.log("Approved and active faculty:", faculty.length);
-    console.log("Approved faculty details:", faculty);
+    console.log("Faculty returned for assignment UI:", faculty.length);
+    console.log("Faculty details (all):", faculty);
 
     res.json({ faculty });
   } catch (error) {
