@@ -217,7 +217,7 @@ export const assignedComplaints = async (
   }
 };
 
-// Update Complaint Status (Faculty only - can update to IN_PROGRESS or PENDING_STUDENT_APPROVAL)
+// Update Complaint Status (Faculty only - can update to IN_PROGRESS or PENDING_CONFIRMATION)
 export const updateComplaintStatus = async (
   req: AuthRequest,
   res: Response,
@@ -231,16 +231,12 @@ export const updateComplaintStatus = async (
       return;
     }
 
-    // Faculty can only move to IN_PROGRESS, PENDING_CONFIRMATION (old), or PENDING_STUDENT_APPROVAL (new)
-    const validFacultyStatuses = [
-      "IN_PROGRESS",
-      "PENDING_CONFIRMATION",
-      "PENDING_STUDENT_APPROVAL",
-    ];
+    // Faculty can only move to IN_PROGRESS or PENDING_CONFIRMATION
+    const validFacultyStatuses = ["IN_PROGRESS", "PENDING_CONFIRMATION"];
     if (!validFacultyStatuses.includes(status)) {
       res.status(400).json({
         error:
-          "Faculty can only update status to IN_PROGRESS or PENDING_STUDENT_APPROVAL",
+          "Faculty can only update status to IN_PROGRESS or PENDING_CONFIRMATION",
       });
       return;
     }
@@ -261,6 +257,13 @@ export const updateComplaintStatus = async (
       return;
     }
 
+    if (complaint.status === "RESOLVED") {
+      res.status(400).json({
+        error: "Resolved complaints cannot be updated",
+      });
+      return;
+    }
+
     // Update complaint status
     const updateData: any = {
       status,
@@ -271,11 +274,8 @@ export const updateComplaintStatus = async (
       updateData.resolutionNote = resolutionNote;
     }
 
-    // Set resolution date when marking as PENDING_STUDENT_APPROVAL or PENDING_CONFIRMATION
-    if (
-      status === "PENDING_STUDENT_APPROVAL" ||
-      status === "PENDING_CONFIRMATION"
-    ) {
+    // Set resolution date when marking as PENDING_CONFIRMATION
+    if (status === "PENDING_CONFIRMATION") {
       updateData.resolutionDate = new Date();
       // Reset handledBySuperAdmin flag when faculty provides new resolution
       updateData.handledBySuperAdmin = false;

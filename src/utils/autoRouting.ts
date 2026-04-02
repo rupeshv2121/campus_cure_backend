@@ -234,7 +234,7 @@ export async function getRoutingStats(): Promise<{
     const complaints = await prisma.complaint.findMany({
       where: {
         status: {
-          in: ["ASSIGNED", "IN_PROGRESS", "RESOLVED", "CLOSED"],
+          in: ["ASSIGNED", "IN_PROGRESS", "RESOLVED"],
         },
       },
       include: {

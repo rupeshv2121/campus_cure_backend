@@ -433,7 +433,7 @@ export const getDashboardStats = async (
     // Calculate stats
     const totalComplaints = complaints.length;
     const resolvedComplaints = complaints.filter(
-      (c) => c.status === "RESOLVED" || c.status === "CLOSED",
+      (c) => c.status === "RESOLVED",
     ).length;
     const raisedComplaints = complaints.filter(
       (c) => c.status === "RAISED",
@@ -459,7 +459,7 @@ export const getDashboardStats = async (
         resolved: 0,
       };
       monthData.complaints += 1;
-      if (complaint.status === "RESOLVED" || complaint.status === "CLOSED") {
+      if (complaint.status === "RESOLVED") {
         monthData.resolved += 1;
       }
       complaintsByMonthMap.set(month, monthData);
@@ -575,7 +575,7 @@ export const getAnalytics = async (
         resolved: 0,
       };
       monthData.complaints += 1;
-      if (complaint.status === "RESOLVED" || complaint.status === "CLOSED") {
+      if (complaint.status === "RESOLVED") {
         monthData.resolved += 1;
       }
       complaintsByMonthMap.set(month, monthData);
@@ -591,7 +591,7 @@ export const getAnalytics = async (
       complaintsByDeptMap.set(dept, (complaintsByDeptMap.get(dept) || 0) + 1);
 
       // Resolution time
-      if (complaint.status === "RESOLVED" || complaint.status === "CLOSED") {
+      if (complaint.status === "RESOLVED") {
         const createdAt = new Date(complaint.createdAt);
         const resolvedAt = new Date(complaint.updatedAt);
         const daysToResolve = Math.ceil(
@@ -670,8 +670,8 @@ export const getAllComplaints = async (
       whereClause = {
         AND: [
           {
-            status: {
-              notIn: ["ESCALATED_TO_SUPERADMIN", "HANDLED_BY_SUPERADMIN"],
+            escalationCount: {
+              lte: 0,
             },
           },
           {
@@ -925,12 +925,7 @@ export const updateComplaintStatus = async (
       "ASSIGNED",
       "IN_PROGRESS",
       "PENDING_CONFIRMATION",
-      "PENDING_STUDENT_APPROVAL",
-      "REJECTED_BY_STUDENT",
-      "ESCALATED_TO_SUPERADMIN",
-      "HANDLED_BY_SUPERADMIN",
       "RESOLVED",
-      "CLOSED",
     ];
     if (!validStatuses.includes(status)) {
       res.status(400).json({ error: "Invalid status" });
@@ -948,27 +943,28 @@ export const updateComplaintStatus = async (
       return;
     }
 
+    if (complaint.status === "RESOLVED" && status !== "RESOLVED") {
+      res.status(400).json({
+        error: "Resolved complaints cannot be updated",
+      });
+      return;
+    }
+
     // Update complaint status
     const updateData: any = {
       status,
     };
 
-    // Add resolution note if status is PENDING_CONFIRMATION, PENDING_STUDENT_APPROVAL, RESOLVED or CLOSED
+    // Add resolution note if status is PENDING_CONFIRMATION or RESOLVED
     if (
-      (status === "PENDING_CONFIRMATION" ||
-        status === "PENDING_STUDENT_APPROVAL" ||
-        status === "RESOLVED" ||
-        status === "CLOSED") &&
+      (status === "PENDING_CONFIRMATION" || status === "RESOLVED") &&
       resolutionNote
     ) {
       updateData.resolutionNote = resolutionNote;
     }
 
-    // Set resolution date when marking as PENDING_CONFIRMATION or PENDING_STUDENT_APPROVAL
-    if (
-      status === "PENDING_CONFIRMATION" ||
-      status === "PENDING_STUDENT_APPROVAL"
-    ) {
+    // Set resolution date when marking as PENDING_CONFIRMATION
+    if (status === "PENDING_CONFIRMATION") {
       updateData.resolutionDate = new Date();
     }
 
@@ -993,13 +989,11 @@ export const updateComplaintStatus = async (
       // Don't fail the request if notifications fail
     }
 
-    // Update admin stats if complaint is being closed (not pending confirmation)
+    // Update admin stats when complaint is resolved
     if (
-      (status === "RESOLVED" || status === "CLOSED") &&
+      status === "RESOLVED" &&
       complaint.status !== "RESOLVED" &&
-      complaint.status !== "CLOSED" &&
-      complaint.status !== "PENDING_CONFIRMATION" &&
-      complaint.status !== "PENDING_STUDENT_APPROVAL"
+      complaint.status !== "PENDING_CONFIRMATION"
     ) {
       await prisma.adminProfile.update({
         where: { userId: req.user!.id },
@@ -1171,9 +1165,7 @@ export const getSuperAdminStats = async (
         where: { role: Role.ADMIN, approvalStatus: ApprovalStatus.PENDING },
       }),
       prisma.complaint.count(),
-      prisma.complaint.count({
-        where: { status: { in: ["RESOLVED", "CLOSED"] } },
-      }),
+      prisma.complaint.count({ where: { status: { in: ["RESOLVED"] } } }),
       prisma.doubt.count(),
       prisma.adminProfile.findMany({
         include: {
@@ -1554,12 +1546,12 @@ export const getEscalatedComplaints = async (
   try {
     const escalatedComplaints = await prisma.complaint.findMany({
       where: {
-        OR: [
-          { status: "REJECTED_BY_STUDENT" },
-          { status: "ESCALATED_TO_SUPERADMIN" },
-          { status: "HANDLED_BY_SUPERADMIN" },
-          { handledBySuperAdmin: true },
-        ],
+        escalationCount: {
+          gt: 0,
+        },
+        status: {
+          not: "RESOLVED",
+        },
       },
       include: {
         raisedBy: {
@@ -1643,10 +1635,10 @@ export const reassignEscalatedComplaint = async (
       return;
     }
 
-    // Update complaint - mark as handled by superadmin and reassign
+    // Reassigned complaints should return to the normal assignment lifecycle.
     const updateData: any = {
       assignedToId: facultyId,
-      status: "HANDLED_BY_SUPERADMIN",
+      status: "ASSIGNED",
       handledBySuperAdmin: true,
       superAdminId: req.user!.id,
     };
@@ -1723,16 +1715,9 @@ export const markComplaintAsHandled = async (
       return;
     }
 
-    // Update status based on action
-    let newStatus: ComplaintStatus = ComplaintStatus.HANDLED_BY_SUPERADMIN;
-    if (action === "escalate") {
-      newStatus = ComplaintStatus.ESCALATED_TO_SUPERADMIN;
-    }
-
     await prisma.complaint.update({
       where: { id: complaintId },
       data: {
-        status: newStatus,
         handledBySuperAdmin: true,
         superAdminId: req.user!.id,
       },

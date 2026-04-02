@@ -1362,11 +1362,7 @@ export const confirmComplaintResolution = async (
       return;
     }
 
-    // Accept both old and new status names for backward compatibility
-    if (
-      complaint.status !== "PENDING_CONFIRMATION" &&
-      complaint.status !== "PENDING_STUDENT_APPROVAL"
-    ) {
+    if (complaint.status !== "PENDING_CONFIRMATION") {
       res.status(400).json({
         error: "Complaint is not pending your approval",
       });
@@ -1474,11 +1470,7 @@ export const rejectComplaintResolution = async (
       return;
     }
 
-    // Accept both old and new status names for backward compatibility
-    if (
-      complaint.status !== "PENDING_CONFIRMATION" &&
-      complaint.status !== "PENDING_STUDENT_APPROVAL"
-    ) {
+    if (complaint.status !== "PENDING_CONFIRMATION") {
       res.status(400).json({
         error: "Complaint is not pending your approval",
       });
@@ -1505,11 +1497,13 @@ export const rejectComplaintResolution = async (
       studentName: complaint.raisedBy.name,
     });
 
-    // Update complaint to REJECTED_BY_STUDENT and escalate to SUPERADMIN
+    const escalatedStatus = complaint.assignedToId ? "ASSIGNED" : "RAISED";
+
+    // Flag complaint for Super Admin re-review using escalation count.
     const updatedComplaint = await prisma.complaint.update({
       where: { id: complaintId },
       data: {
-        status: "REJECTED_BY_STUDENT",
+        status: escalatedStatus,
         studentRejectionMessage: rejectionReason,
         escalationCount: { increment: 1 },
         rejectionHistory: rejectionHistory as unknown as Prisma.InputJsonValue,
@@ -1529,7 +1523,7 @@ export const rejectComplaintResolution = async (
           complaint.assignedToId!,
           complaint.title,
           complaint.status,
-          "REJECTED_BY_STUDENT",
+          escalatedStatus,
           complaintId,
         );
         console.log("Notification sent to faculty");
@@ -1555,9 +1549,10 @@ export const rejectComplaintResolution = async (
           data: {
             complaintId,
             oldStatus: complaint.status,
-            newStatus: "REJECTED_BY_STUDENT",
+            newStatus: escalatedStatus,
             rejectionReason,
             escalationCount: updatedComplaint.escalationCount,
+            escalatedForSuperAdminReview: true,
           },
         });
       }
