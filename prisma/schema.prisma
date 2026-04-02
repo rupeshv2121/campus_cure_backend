@@ -172,6 +172,8 @@ model Complaint {
   handledBySuperAdmin     Boolean         @default(false)
   superAdminId            String?
   rejectionHistory        Json            @default("[]")
+  assignedAt              DateTime?
+  pendingConfirmationAt   DateTime?
   createdAt               DateTime        @default(now())
   updatedAt               DateTime        @updatedAt
   assignedTo              User?           @relation("AssignedComplaints", fields: [assignedToId], references: [id])

@@ -1,4 +1,9 @@
-import { AdminLevel, ApprovalStatus, ComplaintStatus, Role } from "@prisma/client";
+import {
+  AdminLevel,
+  ApprovalStatus,
+  ComplaintStatus,
+  Role,
+} from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
 import type { AuthRequest } from "../types/index.js";
@@ -661,10 +666,10 @@ export const getAllComplaints = async (
 ): Promise<void> => {
   try {
     const userRole = req.user!.role;
-    
+
     // Build filter based on role
     let whereClause: any = {};
-    
+
     // Regular admins should not see complaints escalated to superadmin
     if (userRole === Role.ADMIN) {
       whereClause = {
@@ -681,7 +686,7 @@ export const getAllComplaints = async (
       };
     }
     // SuperAdmins can see all complaints (no filter needed)
-    
+
     const complaints = await prisma.complaint.findMany({
       where: whereClause,
       include: {
@@ -841,6 +846,7 @@ export const assignComplaint = async (
         data: {
           assignedToId: facultyId,
           status: "ASSIGNED",
+          assignedAt: new Date(),
         },
       }),
       prisma.adminProfile.update({

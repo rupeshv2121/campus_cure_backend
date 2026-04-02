@@ -208,6 +208,15 @@ export const assignedComplaints = async (
   try {
     const complaints = await prisma.complaint.findMany({
       where: { assignedToId: req.user!.id },
+      include: {
+        raisedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
       orderBy: { createdAt: "desc" },
     });
     res.json({ complaints });
@@ -277,14 +286,32 @@ export const updateComplaintStatus = async (
     // Set resolution date when marking as PENDING_CONFIRMATION
     if (status === "PENDING_CONFIRMATION") {
       updateData.resolutionDate = new Date();
+      updateData.pendingConfirmationAt = new Date();
       // Reset handledBySuperAdmin flag when faculty provides new resolution
       updateData.handledBySuperAdmin = false;
     }
 
-    await prisma.complaint.update({
-      where: { id: complaintId },
-      data: updateData,
-    });
+    try {
+      await prisma.complaint.update({
+        where: { id: complaintId },
+        data: updateData,
+      });
+    } catch (updateError) {
+      // Backward compatibility: if DB migration for timestamp columns is pending,
+      // retry without the new timestamp field so status updates still work.
+      if (
+        updateError instanceof Prisma.PrismaClientKnownRequestError &&
+        updateError.code === "P2022"
+      ) {
+        const { pendingConfirmationAt: _ignored, ...fallbackData } = updateData;
+        await prisma.complaint.update({
+          where: { id: complaintId },
+          data: fallbackData,
+        });
+      } else {
+        throw updateError;
+      }
+    }
 
     // Send notification for status change
     try {

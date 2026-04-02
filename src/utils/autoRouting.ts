@@ -1,8 +1,4 @@
-import {
-  ApprovalStatus,
-  ComplaintStatus,
-  Role,
-} from "@prisma/client";
+import { ApprovalStatus, ComplaintStatus, Role } from "@prisma/client";
 import { prisma } from "../config/database.js";
 import { notifyComplaintAssignment } from "./notifications.js";
 
@@ -185,6 +181,7 @@ export async function autoAssignComplaint(
       data: {
         assignedToId: selectedFaculty.id,
         status: "ASSIGNED",
+        assignedAt: new Date(),
       },
     });
 
