@@ -14,3 +14,15 @@ export interface RejectionHistoryEntry {
   reason: string;
   studentName: string;
 }
+
+export interface ComplaintAssignmentHistoryEntry {
+  timestamp: string;
+  fromAssigneeId: string | null;
+  fromAssigneeName: string | null;
+  toAssigneeId: string;
+  toAssigneeName: string;
+  performedById: string | null;
+  performedByRole: string;
+  mode: "AUTO" | "ADMIN" | "SUPER_ADMIN";
+  note?: string | null;
+}

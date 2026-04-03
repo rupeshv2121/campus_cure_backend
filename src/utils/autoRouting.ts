@@ -1,6 +1,31 @@
-import { ApprovalStatus, ComplaintStatus, Role } from "@prisma/client";
+import { ApprovalStatus, ComplaintStatus, Prisma, Role } from "@prisma/client";
 import { prisma } from "../config/database.js";
+import {
+  appendComplaintAssignmentHistory,
+  buildComplaintAssignmentHistoryEntry,
+} from "./complaintAssignmentHistory.js";
 import { notifyComplaintAssignment } from "./notifications.js";
+
+const isAssignmentHistoryColumnError = (error: unknown): boolean => {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code !== "P2022") {
+      return false;
+    }
+
+    const column =
+      typeof error.meta === "object" && error.meta && "column" in error.meta
+        ? String((error.meta as { column?: string }).column || "")
+        : "";
+
+    return column.includes("assignmentHistory");
+  }
+
+  if (error instanceof Prisma.PrismaClientValidationError) {
+    return error.message.includes("assignmentHistory");
+  }
+
+  return false;
+};
 
 // Type for user with included relations
 type FacultyWithProfile = {
@@ -175,31 +200,100 @@ export async function autoAssignComplaint(
       };
     }
 
-    // Assign the complaint
-    await prisma.complaint.update({
-      where: { id: complaintId },
-      data: {
-        assignedTo: {
-          connect: { id: selectedFaculty.id },
+    let complaint: {
+      title: string;
+      assignedTo: { id: string; name: string } | null;
+      assignmentHistory?: unknown;
+    } | null = null;
+
+    try {
+      complaint = await prisma.complaint.findUnique({
+        where: { id: complaintId },
+        select: {
+          title: true,
+          assignedTo: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          assignmentHistory: true,
         },
-        status: "ASSIGNED",
-        assignedAt: new Date(),
-      },
-    });
+      });
+    } catch (readError) {
+      if (!isAssignmentHistoryColumnError(readError)) {
+        throw readError;
+      }
 
-    // Send notification to the assigned faculty
-    const complaint = await prisma.complaint.findUnique({
-      where: { id: complaintId },
-      select: { title: true },
-    });
-
-    if (complaint) {
-      await notifyComplaintAssignment(
-        selectedFaculty.id,
-        complaint.title,
-        complaintId,
-      );
+      complaint = await prisma.complaint.findUnique({
+        where: { id: complaintId },
+        select: {
+          title: true,
+          assignedTo: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      });
     }
+
+    if (!complaint) {
+      return {
+        success: false,
+        reason: "Complaint not found",
+      };
+    }
+
+    const assignmentHistory = appendComplaintAssignmentHistory(
+      complaint.assignmentHistory ?? [],
+      buildComplaintAssignmentHistoryEntry({
+        fromAssigneeId: complaint.assignedTo?.id ?? null,
+        fromAssigneeName: complaint.assignedTo?.name ?? null,
+        toAssigneeId: selectedFaculty.id,
+        toAssigneeName: selectedFaculty.name,
+        performedById: null,
+        performedByRole: "SYSTEM",
+        mode: "AUTO",
+      }),
+    );
+
+    // Assign the complaint
+    try {
+      await prisma.complaint.update({
+        where: { id: complaintId },
+        data: {
+          assignedTo: {
+            connect: { id: selectedFaculty.id },
+          },
+          status: "ASSIGNED",
+          assignedAt: new Date(),
+          assignmentHistory,
+        },
+      });
+    } catch (updateError) {
+      if (!isAssignmentHistoryColumnError(updateError)) {
+        throw updateError;
+      }
+
+      await prisma.complaint.update({
+        where: { id: complaintId },
+        data: {
+          assignedTo: {
+            connect: { id: selectedFaculty.id },
+          },
+          status: "ASSIGNED",
+          assignedAt: new Date(),
+        },
+      });
+    }
+
+    await notifyComplaintAssignment(
+      selectedFaculty.id,
+      complaint.title,
+      complaintId,
+    );
 
     return {
       success: true,

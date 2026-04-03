@@ -413,7 +413,22 @@ export const getComplaints = async (
   try {
     const complaints = await prisma.complaint.findMany({
       where: { raisedById: req.user!.id },
-      include: {
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        category: true,
+        classroomNumber: true,
+        block: true,
+        status: true,
+        priority: true,
+        createdAt: true,
+        updatedAt: true,
+        assignedAt: true,
+        resolutionNote: true,
+        studentRejectionMessage: true,
+        escalationCount: true,
+        assignmentHistory: true,
         raisedBy: {
           select: {
             id: true,
@@ -1394,16 +1409,16 @@ export const confirmComplaintResolution = async (
         );
         console.log("Confirmation notification sent to faculty");
       }
-      
+
       // Notify admin that complaint is resolved
       const admins = await prisma.user.findMany({
-        where: { 
+        where: {
           role: { in: [Role.ADMIN, Role.SUPER_ADMIN] },
-          isActive: true 
+          isActive: true,
         },
         select: { id: true },
       });
-      
+
       for (const admin of admins) {
         await notifyComplaintStatusChange(
           admin.id,

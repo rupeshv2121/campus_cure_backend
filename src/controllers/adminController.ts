@@ -1,13 +1,12 @@
-import {
-  AdminLevel,
-  ApprovalStatus,
-  ComplaintStatus,
-  Role,
-} from "@prisma/client";
+import { AdminLevel, ApprovalStatus, Prisma, Role } from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
 import type { AuthRequest } from "../types/index.js";
 import { autoAssignComplaint, getRoutingStats } from "../utils/autoRouting.js";
+import {
+  appendComplaintAssignmentHistory,
+  buildComplaintAssignmentHistoryEntry,
+} from "../utils/complaintAssignmentHistory.js";
 import {
   createNotification,
   notifyComplaintAssignment,
@@ -33,6 +32,27 @@ const DEFAULT_ALLOWED_CATEGORIES = [
 ];
 
 const DEFAULT_DOUBT_SUBJECTS = ["DSA", "DBMS", "OS", "NETWORKS"];
+
+const isAssignmentHistoryColumnError = (error: unknown): boolean => {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code !== "P2022") {
+      return false;
+    }
+
+    const column =
+      typeof error.meta === "object" && error.meta && "column" in error.meta
+        ? String((error.meta as { column?: string }).column || "")
+        : "";
+
+    return column.includes("assignmentHistory");
+  }
+
+  if (error instanceof Prisma.PrismaClientValidationError) {
+    return error.message.includes("assignmentHistory");
+  }
+
+  return false;
+};
 
 const sanitizeStringArray = (values: unknown): string[] => {
   if (!Array.isArray(values)) {
@@ -689,7 +709,24 @@ export const getAllComplaints = async (
 
     const complaints = await prisma.complaint.findMany({
       where: whereClause,
-      include: {
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        category: true,
+        classroomNumber: true,
+        block: true,
+        status: true,
+        priority: true,
+        createdAt: true,
+        updatedAt: true,
+        assignedAt: true,
+        handledBySuperAdmin: true,
+        superAdminId: true,
+        assignmentHistory: true,
+        escalationCount: true,
+        resolutionNote: true,
+        studentRejectionMessage: true,
         raisedBy: {
           select: {
             id: true,
@@ -784,7 +821,18 @@ export const assignComplaint = async (
     // Verify complaint exists
     const complaint = await prisma.complaint.findUnique({
       where: { id: complaintId },
-      include: { raisedBy: true }, // Include who raised the complaint for notifications
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        raisedById: true,
+        assignedTo: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     });
 
     if (!complaint) {
@@ -808,24 +856,76 @@ export const assignComplaint = async (
     }
 
     // Update complaint and admin stats
-    await prisma.$transaction([
-      prisma.complaint.update({
+    const assignmentEntry = buildComplaintAssignmentHistoryEntry({
+      fromAssigneeId: complaint.assignedTo?.id ?? null,
+      fromAssigneeName: complaint.assignedTo?.name ?? null,
+      toAssigneeId: facultyId,
+      toAssigneeName: faculty.name,
+      performedById: req.user!.id,
+      performedByRole: req.user!.role,
+      mode: "ADMIN",
+    });
+
+    let currentAssignmentHistory: unknown = [];
+    try {
+      const historyRow = await prisma.complaint.findUnique({
         where: { id: complaintId },
-        data: {
-          assignedTo: {
-            connect: { id: facultyId },
+        select: { assignmentHistory: true },
+      });
+      currentAssignmentHistory = historyRow?.assignmentHistory ?? [];
+    } catch (historyError) {
+      if (!isAssignmentHistoryColumnError(historyError)) {
+        throw historyError;
+      }
+    }
+
+    const baseComplaintUpdateData = {
+      assignedTo: {
+        connect: { id: facultyId },
+      },
+      status: "ASSIGNED" as const,
+      assignedAt: new Date(),
+    };
+
+    const complaintUpdateDataWithHistory = {
+      ...baseComplaintUpdateData,
+      assignmentHistory: appendComplaintAssignmentHistory(
+        currentAssignmentHistory,
+        assignmentEntry,
+      ),
+    };
+
+    try {
+      await prisma.$transaction([
+        prisma.complaint.update({
+          where: { id: complaintId },
+          data: complaintUpdateDataWithHistory,
+        }),
+        prisma.adminProfile.update({
+          where: { userId: req.user!.id },
+          data: {
+            complaintsAssigned: { increment: 1 },
           },
-          status: "ASSIGNED",
-          assignedAt: new Date(),
-        },
-      }),
-      prisma.adminProfile.update({
-        where: { userId: req.user!.id },
-        data: {
-          complaintsAssigned: { increment: 1 },
-        },
-      }),
-    ]);
+        }),
+      ]);
+    } catch (updateError) {
+      if (!isAssignmentHistoryColumnError(updateError)) {
+        throw updateError;
+      }
+
+      await prisma.$transaction([
+        prisma.complaint.update({
+          where: { id: complaintId },
+          data: baseComplaintUpdateData,
+        }),
+        prisma.adminProfile.update({
+          where: { userId: req.user!.id },
+          data: {
+            complaintsAssigned: { increment: 1 },
+          },
+        }),
+      ]);
+    }
 
     // Send notifications
     try {
@@ -1529,7 +1629,24 @@ export const getEscalatedComplaints = async (
           not: "RESOLVED",
         },
       },
-      include: {
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        category: true,
+        classroomNumber: true,
+        block: true,
+        status: true,
+        priority: true,
+        createdAt: true,
+        updatedAt: true,
+        escalationCount: true,
+        resolutionNote: true,
+        studentRejectionMessage: true,
+        assignedAt: true,
+        handledBySuperAdmin: true,
+        superAdminId: true,
+        assignmentHistory: true,
         raisedBy: {
           select: {
             id: true,
@@ -1588,7 +1705,21 @@ export const reassignEscalatedComplaint = async (
     // Verify complaint exists and is escalated
     const complaint = await prisma.complaint.findUnique({
       where: { id: complaintId },
-      include: { raisedBy: true, assignedTo: true },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        escalationCount: true,
+        assignedToId: true,
+        resolutionNote: true,
+        raisedById: true,
+        assignedTo: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     });
 
     if (!complaint) {
@@ -1597,7 +1728,9 @@ export const reassignEscalatedComplaint = async (
     }
 
     if ((complaint.escalationCount ?? 0) <= 0) {
-      res.status(400).json({ error: "Only escalated complaints can be reassigned" });
+      res
+        .status(400)
+        .json({ error: "Only escalated complaints can be reassigned" });
       return;
     }
 
@@ -1623,14 +1756,41 @@ export const reassignEscalatedComplaint = async (
       return;
     }
 
-    const previousAssigneeId = complaint.assignedTo?.id ?? complaint.assignedToId ?? null;
+    const previousAssigneeId =
+      complaint.assignedTo?.id ?? complaint.assignedToId ?? null;
 
     if (previousAssigneeId === facultyId) {
-      res.status(400).json({ error: "Complaint is already assigned to this faculty" });
+      res
+        .status(400)
+        .json({ error: "Complaint is already assigned to this faculty" });
       return;
     }
 
     // Keep existing complaint status; only transfer assignee and add super-admin metadata.
+    const assignmentEntry = buildComplaintAssignmentHistoryEntry({
+      fromAssigneeId: previousAssigneeId,
+      fromAssigneeName: complaint.assignedTo?.name ?? null,
+      toAssigneeId: facultyId,
+      toAssigneeName: faculty.name,
+      performedById: req.user!.id,
+      performedByRole: req.user!.role,
+      mode: "SUPER_ADMIN",
+      note: superAdminNote || null,
+    });
+
+    let currentAssignmentHistory: unknown = [];
+    try {
+      const historyRow = await prisma.complaint.findUnique({
+        where: { id: complaintId },
+        select: { assignmentHistory: true },
+      });
+      currentAssignmentHistory = historyRow?.assignmentHistory ?? [];
+    } catch (historyError) {
+      if (!isAssignmentHistoryColumnError(historyError)) {
+        throw historyError;
+      }
+    }
+
     const updateData: any = {
       assignedTo: {
         connect: { id: facultyId },
@@ -1638,6 +1798,10 @@ export const reassignEscalatedComplaint = async (
       assignedAt: new Date(),
       handledBySuperAdmin: true,
       superAdminId: req.user!.id,
+      assignmentHistory: appendComplaintAssignmentHistory(
+        currentAssignmentHistory,
+        assignmentEntry,
+      ),
     };
 
     // Add superadmin note to resolution notes
@@ -1645,10 +1809,22 @@ export const reassignEscalatedComplaint = async (
       updateData.resolutionNote = `${complaint.resolutionNote || ""}\n\n[${new Date().toLocaleString()}] SuperAdmin Note: ${superAdminNote}`;
     }
 
-    await prisma.complaint.update({
-      where: { id: complaintId },
-      data: updateData,
-    });
+    try {
+      await prisma.complaint.update({
+        where: { id: complaintId },
+        data: updateData,
+      });
+    } catch (updateError) {
+      if (!isAssignmentHistoryColumnError(updateError)) {
+        throw updateError;
+      }
+
+      const { assignmentHistory: _ignored, ...fallbackUpdateData } = updateData;
+      await prisma.complaint.update({
+        where: { id: complaintId },
+        data: fallbackUpdateData,
+      });
+    }
 
     // Send notifications
     try {
