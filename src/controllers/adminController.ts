@@ -735,40 +735,11 @@ export const getApprovedFaculty = async (
   res: Response,
 ): Promise<void> => {
   try {
-    // First, let's see all faculty in the system for debugging
-    const allFaculty = await prisma.user.findMany({
-      where: {
-        role: Role.FACULTY,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        approvalStatus: true,
-        isActive: true,
-        facultyProfile: {
-          select: {
-            department: true,
-            branch: true,
-          },
-        },
-      },
-    });
-
-    console.log("All faculty in system:", allFaculty.length);
-    console.log(
-      "Faculty details:",
-      allFaculty.map((f) => ({
-        name: f.name,
-        approvalStatus: f.approvalStatus,
-        isActive: f.isActive,
-      })),
-    );
-
-    // Return every faculty regardless of current workload so SuperAdmin/Admin can reassign freely
+    // Return only approved faculty for assignment/reassignment flows.
     const faculty = await prisma.user.findMany({
       where: {
         role: Role.FACULTY,
+        approvalStatus: ApprovalStatus.APPROVED,
       },
       select: {
         id: true,
@@ -787,9 +758,6 @@ export const getApprovedFaculty = async (
         name: "asc",
       },
     });
-
-    console.log("Faculty returned for assignment UI:", faculty.length);
-    console.log("Faculty details (all):", faculty);
 
     res.json({ faculty });
   } catch (error) {
@@ -844,7 +812,9 @@ export const assignComplaint = async (
       prisma.complaint.update({
         where: { id: complaintId },
         data: {
-          assignedToId: facultyId,
+          assignedTo: {
+            connect: { id: facultyId },
+          },
           status: "ASSIGNED",
           assignedAt: new Date(),
         },
@@ -1626,6 +1596,18 @@ export const reassignEscalatedComplaint = async (
       return;
     }
 
+    if ((complaint.escalationCount ?? 0) <= 0) {
+      res.status(400).json({ error: "Only escalated complaints can be reassigned" });
+      return;
+    }
+
+    if (complaint.status !== "RAISED" && complaint.status !== "ASSIGNED") {
+      res.status(400).json({
+        error: "Only RAISED or ASSIGNED escalated complaints can be reassigned",
+      });
+      return;
+    }
+
     // Verify faculty exists and is approved
     const faculty = await prisma.user.findUnique({
       where: { id: facultyId },
@@ -1641,10 +1623,19 @@ export const reassignEscalatedComplaint = async (
       return;
     }
 
-    // Reassigned complaints should return to the normal assignment lifecycle.
+    const previousAssigneeId = complaint.assignedTo?.id ?? complaint.assignedToId ?? null;
+
+    if (previousAssigneeId === facultyId) {
+      res.status(400).json({ error: "Complaint is already assigned to this faculty" });
+      return;
+    }
+
+    // Keep existing complaint status; only transfer assignee and add super-admin metadata.
     const updateData: any = {
-      assignedToId: facultyId,
-      status: "ASSIGNED",
+      assignedTo: {
+        connect: { id: facultyId },
+      },
+      assignedAt: new Date(),
       handledBySuperAdmin: true,
       superAdminId: req.user!.id,
     };
@@ -1674,9 +1665,9 @@ export const reassignEscalatedComplaint = async (
       await notifyComplaintAssignment(facultyId, complaint.title, complaintId);
 
       // If there was a previous faculty, notify them too
-      if (complaint.assignedToId && complaint.assignedToId !== facultyId) {
+      if (previousAssigneeId && previousAssigneeId !== facultyId) {
         await createNotification({
-          userId: complaint.assignedToId,
+          userId: previousAssigneeId,
           type: "COMPLAINT_STATUS_UPDATE",
           title: "Complaint Reassigned",
           message: `Complaint "${complaint.title}" has been reassigned to another faculty member by Super Admin.`,

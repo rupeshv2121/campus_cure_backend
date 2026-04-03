@@ -179,7 +179,9 @@ export async function autoAssignComplaint(
     await prisma.complaint.update({
       where: { id: complaintId },
       data: {
-        assignedToId: selectedFaculty.id,
+        assignedTo: {
+          connect: { id: selectedFaculty.id },
+        },
         status: "ASSIGNED",
         assignedAt: new Date(),
       },

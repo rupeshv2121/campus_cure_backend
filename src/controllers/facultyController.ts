@@ -262,7 +262,9 @@ export const updateComplaintStatus = async (
     }
 
     if (complaint.assignedToId !== req.user!.id) {
-      res.status(403).json({ error: "This complaint is not assigned to you" });
+      res.status(403).json({
+        error: "This complaint is assigned to another faculty member",
+      });
       return;
     }
 
