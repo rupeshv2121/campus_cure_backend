@@ -206,14 +206,37 @@ export const assignedComplaints = async (
   res: Response,
 ): Promise<void> => {
   try {
+    const facultyId = req.user!.id;
+
     const complaints = await prisma.complaint.findMany({
-      where: { assignedToId: req.user!.id },
+      where: {
+        OR: [
+          { assignedToId: facultyId },
+          {
+            assignmentHistory: {
+              array_contains: [{ fromAssigneeId: facultyId }],
+            },
+          },
+        ],
+      },
       include: {
         raisedBy: {
           select: {
             id: true,
             name: true,
             email: true,
+          },
+        },
+        assignedTo: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            facultyProfile: {
+              select: {
+                department: true,
+              },
+            },
           },
         },
       },
