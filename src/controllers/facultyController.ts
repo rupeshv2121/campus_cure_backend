@@ -494,6 +494,8 @@ export const postAnswer = async (
       console.error("Notification error:", notificationError);
       // Don't fail the request if notifications fail
     }
+
+    res.status(201).json({ message: "Answer posted successfully", answer });
   } catch (error) {
     console.error("Error posting answer:", error);
     res.status(500).json({ error: "Internal server error" });

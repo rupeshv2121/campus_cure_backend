@@ -3,9 +3,7 @@ import { Router } from "express";
 import {
   confirmComplaintResolution,
   createStudentProfile,
-  deleteAnswer,
   deleteDoubt,
-  editAnswer,
   editDoubt,
   getComplaints,
   getDoubtById,
@@ -16,7 +14,6 @@ import {
   getStudentPostingSettings,
   getStudentProfile,
   markAnswerAsAccepted,
-  postAnswer,
   postDoubt,
   raiseComplaint,
   rejectComplaintResolution,
@@ -98,30 +95,6 @@ router.post(
   authenticate,
   authorize(Role.STUDENT),
   upvoteAnswer,
-);
-
-// 18. Post an answer to a doubt
-router.post(
-  "/doubts/:doubtId/answers",
-  authenticate,
-  authorize(Role.STUDENT),
-  postAnswer,
-);
-
-// 19. Edit an answer
-router.put(
-  "/answers/:answerId",
-  authenticate,
-  authorize(Role.STUDENT),
-  editAnswer,
-);
-
-// 19b. Delete an answer
-router.delete(
-  "/answers/:answerId",
-  authenticate,
-  authorize(Role.STUDENT),
-  deleteAnswer,
 );
 
 // 20. Get student's own answers
