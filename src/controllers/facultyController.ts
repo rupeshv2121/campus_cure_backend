@@ -638,7 +638,7 @@ export const getDoubts = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const { status, subject, semester, search, myAnswered } = req.query;
+    const { status, subject, semester, search, myAnswered, limit } = req.query;
 
     const where: any = {};
 
@@ -665,7 +665,7 @@ export const getDoubts = async (
       where.answers = { some: { answeredById: req.user!.id } };
     }
 
-    const doubts = await prisma.doubt.findMany({
+    const findOptions: any = {
       where,
       include: {
         postedBy: {
@@ -688,7 +688,15 @@ export const getDoubts = async (
         },
       },
       orderBy: { createdAt: "desc" },
-    });
+    };
+
+    // Support optional limit (take) to return only most recent N doubts
+    if (limit) {
+      const n = parseInt(limit as string, 10);
+      if (!isNaN(n) && n > 0) findOptions.take = n;
+    }
+
+    const doubts = await prisma.doubt.findMany(findOptions);
 
     res.json({ doubts });
   } catch (error) {
