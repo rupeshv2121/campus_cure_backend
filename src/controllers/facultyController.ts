@@ -446,6 +446,7 @@ export const postAnswer = async (
           content,
           doubtId,
           answeredById: req.user!.id,
+          approvalStatus: ApprovalStatus.APPROVED,
         },
         include: {
           answeredBy: {
@@ -460,6 +461,14 @@ export const postAnswer = async (
                   subjects: true,
                 },
               },
+            },
+          },
+          moderatedBy: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              role: true,
             },
           },
         },
@@ -498,6 +507,141 @@ export const postAnswer = async (
     res.status(201).json({ message: "Answer posted successfully", answer });
   } catch (error) {
     console.error("Error posting answer:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// 12c. Moderate an answer (Faculty)
+export const moderateAnswer = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const answerId = req.params.answerId as string;
+    const { approvalStatus, moderationNote } = req.body as {
+      approvalStatus?: ApprovalStatus;
+      moderationNote?: string;
+    };
+
+    if (
+      !approvalStatus ||
+      (approvalStatus !== ApprovalStatus.APPROVED &&
+        approvalStatus !== ApprovalStatus.REJECTED)
+    ) {
+      res.status(400).json({ error: "approvalStatus must be APPROVED or REJECTED" });
+      return;
+    }
+
+    const answer = await prisma.answer.findUnique({
+      where: { id: answerId },
+      select: {
+        id: true,
+        moderatedById: true,
+        answeredBy: {
+          select: {
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (!answer) {
+      res.status(404).json({ error: "Answer not found" });
+      return;
+    }
+
+    if (answer.answeredBy.role === Role.FACULTY) {
+      res.status(400).json({
+        error: "Faculty answers do not support moderation updates",
+      });
+      return;
+    }
+
+    if (answer.moderatedById && answer.moderatedById !== req.user!.id) {
+      res.status(403).json({
+        error:
+          "Only the faculty who previously moderated this answer can update it",
+      });
+      return;
+    }
+
+    const updatedAnswer = await prisma.answer.update({
+      where: { id: answerId },
+      data: {
+        approvalStatus,
+        moderatedById: req.user!.id,
+        moderatedAt: new Date(),
+        moderationNote: moderationNote?.trim() || null,
+      },
+      include: {
+        doubt: {
+          select: {
+            id: true,
+            title: true,
+            postedById: true,
+          },
+        },
+        answeredBy: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            role: true,
+            facultyProfile: {
+              select: {
+                department: true,
+                subjects: true,
+              },
+            },
+            studentProfile: {
+              select: {
+                semester: true,
+                branch: true,
+              },
+            },
+          },
+        },
+        moderatedBy: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            role: true,
+            facultyProfile: {
+              select: {
+                department: true,
+                subjects: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Send notification to doubt creator only when answer is approved
+    try {
+      if (approvalStatus === ApprovalStatus.APPROVED && updatedAnswer.doubt.postedById !== updatedAnswer.answeredBy.id) {
+        await notifyDoubtAnswer(
+          updatedAnswer.doubt.postedById,
+          updatedAnswer.doubt.title,
+          updatedAnswer.answeredBy.name,
+          updatedAnswer.doubt.id,
+        );
+      }
+    } catch (notificationError) {
+      console.error("Notification error:", notificationError);
+      // Don't fail the request if notifications fail
+    }
+
+    res.json({
+      message:
+        approvalStatus === ApprovalStatus.APPROVED
+          ? "Answer approved successfully"
+          : "Answer rejected successfully",
+      answer: updatedAnswer,
+    });
+  } catch (error) {
+    console.error("Error moderating answer:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -777,6 +921,14 @@ export const getDoubtById = async (
                     branch: true,
                   },
                 },
+              },
+            },
+            moderatedBy: {
+              select: {
+                id: true,
+                name: true,
+                username: true,
+                role: true,
               },
             },
           },

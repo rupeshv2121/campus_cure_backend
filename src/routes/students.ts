@@ -3,7 +3,9 @@ import { Router } from "express";
 import {
   confirmComplaintResolution,
   createStudentProfile,
+  deleteAnswer,
   deleteDoubt,
+  editAnswer,
   editDoubt,
   getComplaints,
   getDoubtById,
@@ -15,6 +17,7 @@ import {
   getStudentProfile,
   markAnswerAsAccepted,
   postDoubt,
+  postAnswer,
   raiseComplaint,
   rejectComplaintResolution,
   updateStudentProfile,
@@ -81,6 +84,14 @@ router.delete(
 
 // ========== ANSWERS ==========
 
+// 16a. Post an answer (student answers go to faculty moderation)
+router.post(
+  "/doubts/:doubtId/answers",
+  authenticate,
+  authorize(Role.STUDENT),
+  postAnswer,
+);
+
 // 16. Mark an answer as accepted
 router.post(
   "/doubts/:doubtId/answers/:answerId/accept",
@@ -95,6 +106,22 @@ router.post(
   authenticate,
   authorize(Role.STUDENT),
   upvoteAnswer,
+);
+
+// 17b. Edit own answer (allowed only while pending moderation)
+router.put(
+  "/answers/:answerId",
+  authenticate,
+  authorize(Role.STUDENT),
+  editAnswer,
+);
+
+// 17c. Delete own answer
+router.delete(
+  "/answers/:answerId",
+  authenticate,
+  authorize(Role.STUDENT),
+  deleteAnswer,
 );
 
 // 20. Get student's own answers

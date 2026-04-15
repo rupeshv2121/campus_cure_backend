@@ -20,6 +20,7 @@ model User {
   faceDescriptor     Float[]         @default([])
   adminProfile       AdminProfile?
   answers            Answer[]
+  moderatedAnswers    Answer[]        @relation("ModeratedAnswers")
   answerUpvotes      AnswerUpvote[]
   assignedComplaints Complaint[]     @relation("AssignedComplaints")
   raisedComplaints   Complaint[]     @relation("RaisedComplaints")
@@ -113,15 +114,20 @@ model Answer {
   doubtId       String
   content       String
   answeredById  String
+  approvalStatus ApprovalStatus @default(APPROVED)
   upvotes       Int            @default(0)
   isVerified    Boolean        @default(false)
   isAccepted    Boolean        @default(false)
   edited        Boolean        @default(false)
+  moderatedById String?
+  moderatedAt   DateTime?
+  moderationNote String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   editHistory   Json           @default("[]")
   answeredBy    User           @relation(fields: [answeredById], references: [id])
   doubt         Doubt          @relation(fields: [doubtId], references: [id])
+  moderatedBy   User?          @relation("ModeratedAnswers", fields: [moderatedById], references: [id])
   answerUpvotes AnswerUpvote[]
 }
 

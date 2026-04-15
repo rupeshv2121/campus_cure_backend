@@ -6,7 +6,6 @@ import { autoAssignComplaint } from "../utils/autoRouting.js";
 import {
   createNotification,
   notifyComplaintStatusChange,
-  notifyDoubtAnswer,
 } from "../utils/notifications.js";
 
 const DEFAULT_ALLOWED_COMPLAINT_CATEGORIES = [
@@ -547,7 +546,7 @@ export const getDoubts = async (
     }
 
     if (semester) {
-      where.semester = parseInt(semester as string);
+      where.semester = parseInt(semester as string, 10);
     }
 
     if (search) {
@@ -598,7 +597,6 @@ export const getDoubtById = async (
     const id = req.params.id as string;
     const userId = req.user!.id;
 
-    // Fetch the doubt first so a missing doubt returns 404, not 500
     const doubt = await prisma.doubt.findUnique({
       where: { id },
       include: {
@@ -637,6 +635,14 @@ export const getDoubtById = async (
                 },
               },
             },
+            moderatedBy: {
+              select: {
+                id: true,
+                name: true,
+                username: true,
+                role: true,
+              },
+            },
           },
           orderBy: [
             { isAccepted: "desc" },
@@ -653,8 +659,6 @@ export const getDoubtById = async (
       return;
     }
 
-    // Track the view in its own try/catch so race conditions (e.g. React
-    // StrictMode double-invoking effects) never cause a 500 for the client.
     try {
       const existingView = await prisma.doubtView.findUnique({
         where: { doubtId_userId: { doubtId: id, userId } },
@@ -670,14 +674,11 @@ export const getDoubtById = async (
         ]);
       }
     } catch (viewError: any) {
-      // P2002 = unique constraint violation: a concurrent request already
-      // created the view record (React StrictMode runs effects twice in dev).
       if (viewError?.code !== "P2002") {
         console.error("Error tracking doubt view:", viewError);
       }
     }
 
-    // Get the answer IDs that the user has upvoted
     const userUpvotes = await prisma.answerUpvote.findMany({
       where: {
         userId,
@@ -692,8 +693,13 @@ export const getDoubtById = async (
 
     const upvotedAnswerIds = new Set(userUpvotes.map((uv) => uv.answerId));
 
-    // Add isUpvoted field to each answer
-    const answersWithUpvoteStatus = doubt.answers.map((answer) => ({
+    const visibleAnswers = doubt.answers.filter(
+      (answer) =>
+        answer.approvalStatus === ApprovalStatus.APPROVED ||
+        answer.answeredById === userId,
+    );
+
+    const answersWithUpvoteStatus = visibleAnswers.map((answer) => ({
       ...answer,
       isUpvotedByUser: upvotedAnswerIds.has(answer.id),
     }));
@@ -719,7 +725,6 @@ export const editDoubt = async (
     const id = req.params.id as string;
     const { title, description, subject, labels } = req.body;
 
-    // Check if doubt exists and belongs to the user
     const existingDoubt = await prisma.doubt.findUnique({
       where: { id },
     });
@@ -734,7 +739,6 @@ export const editDoubt = async (
       return;
     }
 
-    // Create edit history entry
     const editHistory = Array.isArray(existingDoubt.editHistory)
       ? existingDoubt.editHistory
       : [];
@@ -1063,6 +1067,7 @@ export const postAnswer = async (
           content,
           doubtId,
           answeredById: req.user!.id,
+          approvalStatus: ApprovalStatus.PENDING,
         },
         include: {
           answeredBy: {
@@ -1079,6 +1084,14 @@ export const postAnswer = async (
               },
             },
           },
+          moderatedBy: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              role: true,
+            },
+          },
         },
       }),
       prisma.doubt.update({
@@ -1090,20 +1103,8 @@ export const postAnswer = async (
       }),
     ]);
 
-    // Send notification to doubt owner (if not answering own doubt)
-    try {
-      if (doubt.postedById !== req.user!.id && currentUser) {
-        await notifyDoubtAnswer(
-          doubt.postedById,
-          doubt.title,
-          currentUser.name,
-          doubtId,
-        );
-      }
-    } catch (notificationError) {
-      console.error("Notification error:", notificationError);
-      // Don't fail the request if notifications fail
-    }
+    // Note: Notification is sent only when answer is approved by faculty,
+    // not when posted (to avoid notifying about pending answers)
 
     res.status(201).json({ message: "Answer posted successfully", answer });
   } catch (error) {
@@ -1138,6 +1139,14 @@ export const editAnswer = async (
 
     if (existingAnswer.answeredById !== req.user!.id) {
       res.status(403).json({ error: "You can only edit your own answers" });
+      return;
+    }
+
+    if (existingAnswer.approvalStatus !== ApprovalStatus.PENDING) {
+      res.status(400).json({
+        error:
+          "You can only edit your answer before faculty approves or rejects it",
+      });
       return;
     }
 
@@ -1187,6 +1196,14 @@ export const deleteAnswer = async (
 
     if (existingAnswer.answeredById !== req.user!.id) {
       res.status(403).json({ error: "You can only delete your own answers" });
+      return;
+    }
+
+    if (existingAnswer.approvalStatus !== ApprovalStatus.PENDING) {
+      res.status(400).json({
+        error:
+          "You can only delete your answer before faculty approves or rejects it",
+      });
       return;
     }
 
@@ -1276,6 +1293,14 @@ export const getMyAnswers = async (
     const answers = await prisma.answer.findMany({
       where: { answeredById: req.user!.id },
       include: {
+        moderatedBy: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            role: true,
+          },
+        },
         doubt: {
           select: {
             id: true,
@@ -1316,6 +1341,14 @@ export const getMyAnswerForDoubt = async (
         answeredById: req.user!.id,
       },
       include: {
+        moderatedBy: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            role: true,
+          },
+        },
         answeredBy: {
           select: {
             id: true,

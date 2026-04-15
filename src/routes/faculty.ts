@@ -9,6 +9,7 @@ import {
   getDoubts,
   getFacultyProfile,
   getMyAnswers,
+  moderateAnswer,
   postAnswer,
   updateComplaintStatus,
   updateFacultyProfile,
@@ -67,6 +68,14 @@ router.post(
   authenticate,
   authorize(Role.FACULTY),
   verifyAnswer,
+);
+
+// 15b. Moderate an answer
+router.put(
+  "/answers/:answerId/moderate",
+  authenticate,
+  authorize(Role.FACULTY),
+  moderateAnswer,
 );
 
 // 16. Get faculty's answers
