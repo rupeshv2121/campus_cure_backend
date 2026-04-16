@@ -21,6 +21,50 @@ const DEFAULT_ALLOWED_COMPLAINT_CATEGORIES = [
 
 const DEFAULT_DOUBT_SUBJECTS = ["DSA", "DBMS", "OS", "NETWORKS"];
 
+const KEYWORD_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "by",
+  "for",
+  "from",
+  "how",
+  "i",
+  "in",
+  "is",
+  "it",
+  "of",
+  "on",
+  "or",
+  "that",
+  "the",
+  "this",
+  "to",
+  "was",
+  "what",
+  "when",
+  "where",
+  "which",
+  "why",
+  "with",
+]);
+
+const normalizeForKeywordMatch = (value: string): string =>
+  value.toLowerCase().replace(/[^a-z0-9\s]+/g, " ").replace(/\s+/g, " ").trim();
+
+const extractKeywords = (value: string): string[] => {
+  const normalized = normalizeForKeywordMatch(value);
+  const tokens = normalized.split(" ").filter((token) => {
+    return token.length >= 3 && !KEYWORD_STOP_WORDS.has(token);
+  });
+
+  return [...new Set(tokens)].slice(0, 8);
+};
+
 const getLatestSuperAdminDoubtSubjects = async (): Promise<string[]> => {
   try {
     const rows = await prisma.$queryRaw<
@@ -459,6 +503,146 @@ export const getComplaints = async (
 };
 
 // ============ DOUBT MANAGEMENT ============
+
+// 10a. Suggest similar doubts while student types
+export const getSimilarDoubtSuggestions = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const query = typeof req.query.query === "string" ? req.query.query.trim() : "";
+    const subject =
+      typeof req.query.subject === "string" ? req.query.subject.trim() : undefined;
+    const semesterRaw =
+      typeof req.query.semester === "string" ? Number(req.query.semester) : undefined;
+    const limitRaw =
+      typeof req.query.limit === "string" ? Number(req.query.limit) : undefined;
+
+    const semester =
+      typeof semesterRaw === "number" && Number.isInteger(semesterRaw) && semesterRaw >= 1
+        ? semesterRaw
+        : undefined;
+
+    const limit =
+      typeof limitRaw === "number" && Number.isInteger(limitRaw)
+        ? Math.min(Math.max(limitRaw, 1), 10)
+        : 5;
+
+    if (query.length < 3) {
+      res.json({ suggestions: [] });
+      return;
+    }
+
+    const normalizedQuery = normalizeForKeywordMatch(query);
+    const keywords = extractKeywords(query);
+
+    const keywordClauses: Prisma.DoubtWhereInput[] = keywords.flatMap((keyword) => [
+      { title: { contains: keyword, mode: "insensitive" } },
+      { description: { contains: keyword, mode: "insensitive" } },
+    ]);
+
+    const queryClauses: Prisma.DoubtWhereInput[] = [
+      { title: { contains: query, mode: "insensitive" } },
+      { description: { contains: query, mode: "insensitive" } },
+    ];
+
+    const orClauses = [...queryClauses, ...keywordClauses];
+    if (orClauses.length === 0) {
+      res.json({ suggestions: [] });
+      return;
+    }
+
+    const where: Prisma.DoubtWhereInput = {
+      ...(subject ? { subject } : {}),
+      ...(semester ? { semester } : {}),
+      OR: orClauses,
+    };
+
+    const candidates = await prisma.doubt.findMany({
+      where,
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        subject: true,
+        semester: true,
+        views: true,
+        createdAt: true,
+        _count: {
+          select: {
+            answers: true,
+          },
+        },
+      },
+      take: 40,
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    const scored = candidates
+      .map((candidate) => {
+        const title = normalizeForKeywordMatch(candidate.title);
+        const description = normalizeForKeywordMatch(candidate.description);
+
+        let score = 0;
+        if (title.includes(normalizedQuery)) {
+          score += 6;
+        }
+        if (description.includes(normalizedQuery)) {
+          score += 3;
+        }
+
+        const matchedKeywords = keywords.filter((keyword) => {
+          const inTitle = title.includes(keyword);
+          const inDescription = description.includes(keyword);
+
+          if (inTitle) {
+            score += 3;
+          } else if (inDescription) {
+            score += 1;
+          }
+
+          return inTitle || inDescription;
+        });
+
+        return {
+          id: candidate.id,
+          title: candidate.title,
+          subject: candidate.subject,
+          semester: candidate.semester,
+          views: candidate.views,
+          answerCount: candidate._count.answers,
+          createdAt: candidate.createdAt,
+          matchedKeywords,
+          score,
+        };
+      })
+      .filter((candidate) => candidate.score > 0)
+      .sort((a, b) => {
+        if (b.score !== a.score) {
+          return b.score - a.score;
+        }
+        if (b.answerCount !== a.answerCount) {
+          return b.answerCount - a.answerCount;
+        }
+        if (b.views !== a.views) {
+          return b.views - a.views;
+        }
+        return b.createdAt.getTime() - a.createdAt.getTime();
+      })
+      .slice(0, limit)
+      .map(({ createdAt, score, ...candidate }) => ({
+        ...candidate,
+        createdAt: createdAt.toISOString(),
+      }));
+
+    res.json({ suggestions: scored });
+  } catch (error) {
+    console.error("Error fetching doubt suggestions:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
 
 // 10. Post a new doubt
 export const postDoubt = async (

@@ -13,6 +13,7 @@ import {
   getMyAnswerForDoubt,
   getMyAnswers,
   getMyDoubts,
+  getSimilarDoubtSuggestions,
   getStudentPostingSettings,
   getStudentProfile,
   markAnswerAsAccepted,
@@ -64,6 +65,14 @@ router.post("/doubts", authenticate, authorize(Role.STUDENT), postDoubt);
 
 // 11. Get all doubts with filters
 router.get("/doubts", authenticate, authorize(Role.STUDENT), getDoubts);
+
+// 11a. Get similar doubt suggestions
+router.get(
+  "/doubts/suggestions",
+  authenticate,
+  authorize(Role.STUDENT),
+  getSimilarDoubtSuggestions,
+);
 
 // 12. Get student's own doubts
 router.get("/doubts/my", authenticate, authorize(Role.STUDENT), getMyDoubts);
