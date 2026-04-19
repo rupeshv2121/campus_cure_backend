@@ -10,7 +10,8 @@ model User {
   name               String
   email              String          @unique
   password           String
-  username           String          @unique
+  userID             String          @unique @map("username")
+  university         String          @default("UNSPECIFIED")
   isActive           Boolean         @default(false)
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
@@ -20,7 +21,7 @@ model User {
   faceDescriptor     Float[]         @default([])
   adminProfile       AdminProfile?
   answers            Answer[]
-  moderatedAnswers    Answer[]        @relation("ModeratedAnswers")
+  moderatedAnswers   Answer[]        @relation("ModeratedAnswers")
   answerUpvotes      AnswerUpvote[]
   assignedComplaints Complaint[]     @relation("AssignedComplaints")
   raisedComplaints   Complaint[]     @relation("RaisedComplaints")
@@ -110,25 +111,25 @@ model Doubt {
 }
 
 model Answer {
-  id            String         @id @default(uuid())
-  doubtId       String
-  content       String
-  answeredById  String
+  id             String         @id @default(uuid())
+  doubtId        String
+  content        String
+  answeredById   String
   approvalStatus ApprovalStatus @default(APPROVED)
-  upvotes       Int            @default(0)
-  isVerified    Boolean        @default(false)
-  isAccepted    Boolean        @default(false)
-  edited        Boolean        @default(false)
-  moderatedById String?
-  moderatedAt   DateTime?
+  upvotes        Int            @default(0)
+  isVerified     Boolean        @default(false)
+  isAccepted     Boolean        @default(false)
+  edited         Boolean        @default(false)
+  moderatedById  String?
+  moderatedAt    DateTime?
   moderationNote String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  editHistory   Json           @default("[]")
-  answeredBy    User           @relation(fields: [answeredById], references: [id])
-  doubt         Doubt          @relation(fields: [doubtId], references: [id])
-  moderatedBy   User?          @relation("ModeratedAnswers", fields: [moderatedById], references: [id])
-  answerUpvotes AnswerUpvote[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  editHistory    Json           @default("[]")
+  answeredBy     User           @relation(fields: [answeredById], references: [id])
+  doubt          Doubt          @relation(fields: [doubtId], references: [id])
+  moderatedBy    User?          @relation("ModeratedAnswers", fields: [moderatedById], references: [id])
+  answerUpvotes  AnswerUpvote[]
 }
 
 model DoubtView {
@@ -173,6 +174,7 @@ model Complaint {
   studentConfirmed        Boolean         @default(false)
   studentConfirmationDate DateTime?
   feedbackRating          Int?
+  feedbackComment         String?
   studentRejectionMessage String?
   escalationCount         Int             @default(0)
   handledBySuperAdmin     Boolean         @default(false)

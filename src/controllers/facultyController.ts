@@ -94,7 +94,7 @@ export const getFacultyProfile = async (
             id: true,
             name: true,
             email: true,
-            username: true,
+            userID: true,
           },
         },
       },
@@ -391,7 +391,7 @@ export const verifyAnswer = async (
           select: {
             id: true,
             name: true,
-            username: true,
+            userID: true,
           },
         },
       },
@@ -453,7 +453,7 @@ export const postAnswer = async (
             select: {
               id: true,
               name: true,
-              username: true,
+              userID: true,
               role: true,
               facultyProfile: {
                 select: {
@@ -467,7 +467,7 @@ export const postAnswer = async (
             select: {
               id: true,
               name: true,
-              username: true,
+              userID: true,
               role: true,
             },
           },
@@ -528,7 +528,9 @@ export const moderateAnswer = async (
       (approvalStatus !== ApprovalStatus.APPROVED &&
         approvalStatus !== ApprovalStatus.REJECTED)
     ) {
-      res.status(400).json({ error: "approvalStatus must be APPROVED or REJECTED" });
+      res
+        .status(400)
+        .json({ error: "approvalStatus must be APPROVED or REJECTED" });
       return;
     }
 
@@ -585,7 +587,7 @@ export const moderateAnswer = async (
           select: {
             id: true,
             name: true,
-            username: true,
+            userID: true,
             role: true,
             facultyProfile: {
               select: {
@@ -605,7 +607,7 @@ export const moderateAnswer = async (
           select: {
             id: true,
             name: true,
-            username: true,
+            userID: true,
             role: true,
             facultyProfile: {
               select: {
@@ -620,7 +622,10 @@ export const moderateAnswer = async (
 
     // Send notification to doubt creator only when answer is approved
     try {
-      if (approvalStatus === ApprovalStatus.APPROVED && updatedAnswer.doubt.postedById !== updatedAnswer.answeredBy.id) {
+      if (
+        approvalStatus === ApprovalStatus.APPROVED &&
+        updatedAnswer.doubt.postedById !== updatedAnswer.answeredBy.id
+      ) {
         await notifyDoubtAnswer(
           updatedAnswer.doubt.postedById,
           updatedAnswer.doubt.title,
@@ -809,6 +814,8 @@ export const getDoubts = async (
       where.answers = { some: { answeredById: req.user!.id } };
     }
 
+    where.postedBy = { university: req.user!.university };
+
     const findOptions: any = {
       where,
       include: {
@@ -816,7 +823,7 @@ export const getDoubts = async (
           select: {
             id: true,
             name: true,
-            username: true,
+            userID: true,
             studentProfile: {
               select: {
                 semester: true,
@@ -885,14 +892,17 @@ export const getDoubtById = async (
     }
 
     // Fetch the doubt with all related data
-    const doubt = await prisma.doubt.findUnique({
-      where: { id },
+    const doubt = await prisma.doubt.findFirst({
+      where: {
+        id,
+        postedBy: { university: req.user!.university },
+      },
       include: {
         postedBy: {
           select: {
             id: true,
             name: true,
-            username: true,
+            userID: true,
             studentProfile: {
               select: {
                 semester: true,
@@ -907,7 +917,7 @@ export const getDoubtById = async (
               select: {
                 id: true,
                 name: true,
-                username: true,
+                userID: true,
                 role: true,
                 facultyProfile: {
                   select: {
@@ -927,7 +937,7 @@ export const getDoubtById = async (
               select: {
                 id: true,
                 name: true,
-                username: true,
+                userID: true,
                 role: true,
               },
             },
@@ -972,7 +982,7 @@ export const getMyAnswers = async (
             postedBy: {
               select: {
                 name: true,
-                username: true,
+                userID: true,
               },
             },
           },

@@ -9,11 +9,17 @@ import { withRetry } from "../utils/retry.js";
 // 1. Register (Student / Faculty / Admin)
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, email, password, role, username } = req.body;
+    const { name, email, password, role, userID, university } = req.body;
 
     // Validate required fields
-    if (!name || !email || !password || !role || !username) {
+    if (!name || !email || !password || !role || !userID || !university) {
       res.status(400).json({ error: "All fields are required" });
+      return;
+    }
+
+    const normalizedUniversity = String(university).trim();
+    if (!normalizedUniversity) {
+      res.status(400).json({ error: "University is required" });
       return;
     }
 
@@ -27,7 +33,10 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     const existingUser = await withRetry(() =>
       prisma.user.findFirst({
         where: {
-          OR: [{ email }, { username }],
+          OR: [{ email }, { userID }],
+        },
+        select: {
+          id: true,
         },
       }),
     );
@@ -35,7 +44,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     if (existingUser) {
       res
         .status(400)
-        .json({ error: "User with this email or username already exists" });
+        .json({ error: "User with this email or userID already exists" });
       return;
     }
 
@@ -49,10 +58,20 @@ export const register = async (req: Request, res: Response): Promise<void> => {
           name,
           email,
           password: hashedPassword,
-          username,
+          userID,
+          university: normalizedUniversity,
           role: role as Role,
           approvalStatus: ApprovalStatus.PENDING,
           isActive: false,
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          userID: true,
+          university: true,
+          role: true,
+          approvalStatus: true,
         },
       }),
     );
@@ -63,7 +82,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         prisma.studentProfile.create({
           data: {
             userId: user.id,
-            enrollmentNumber: username,
+            enrollmentNumber: userID,
             department: "Not Set",
             branch: "Not Set",
             semester: 1,
@@ -108,7 +127,8 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         id: user.id,
         name: user.name,
         email: user.email,
-        username: user.username,
+        userID: user.userID,
+        university: user.university,
         role: user.role,
         approvalStatus: user.approvalStatus,
       },
@@ -144,6 +164,16 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     const user = await withRetry(() =>
       prisma.user.findUnique({
         where: { email },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          password: true,
+          userID: true,
+          university: true,
+          role: true,
+          approvalStatus: true,
+        },
       }),
     );
 
@@ -188,6 +218,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       prisma.user.update({
         where: { id: user.id },
         data: { isActive: true },
+        select: {
+          id: true,
+        },
       }),
     );
 
@@ -196,6 +229,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       const adminProfile = await withRetry(() =>
         prisma.adminProfile.findUnique({
           where: { userId: user.id },
+          select: {
+            id: true,
+          },
         }),
       );
 
@@ -204,6 +240,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
           prisma.adminProfile.update({
             where: { userId: user.id },
             data: { lastLoginAt: new Date() },
+            select: {
+              id: true,
+            },
           }),
         );
       }
@@ -211,7 +250,12 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
     // Generate JWT token
     const token = jwt.sign(
-      { id: user.id, role: user.role, username: user.username },
+      {
+        id: user.id,
+        role: user.role,
+        userID: user.userID,
+        university: user.university,
+      },
       JWT_SECRET,
       { expiresIn: "7d" },
     );
@@ -223,7 +267,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         id: user.id,
         name: user.name,
         email: user.email,
-        username: user.username,
+        userID: user.userID,
+        university: user.university,
         role: user.role,
         approvalStatus: user.approvalStatus,
         isActive: true,
@@ -254,7 +299,8 @@ export const getMe = async (req: AuthRequest, res: Response): Promise<void> => {
         id: true,
         name: true,
         email: true,
-        username: true,
+        userID: true,
+        university: true,
         role: true,
         approvalStatus: true,
         isActive: true,
@@ -382,7 +428,8 @@ export const faceLogin = async (req: Request, res: Response): Promise<void> => {
           id: true,
           name: true,
           email: true,
-          username: true,
+          userID: true,
+          university: true,
           role: true,
           approvalStatus: true,
           isActive: true,
@@ -434,7 +481,12 @@ export const faceLogin = async (req: Request, res: Response): Promise<void> => {
 
     // Generate JWT token
     const token = jwt.sign(
-      { id: bestMatch.id, role: bestMatch.role, username: bestMatch.username },
+      {
+        id: bestMatch.id,
+        role: bestMatch.role,
+        userID: bestMatch.userID,
+        university: bestMatch.university,
+      },
       JWT_SECRET,
       { expiresIn: "7d" },
     );
@@ -446,7 +498,8 @@ export const faceLogin = async (req: Request, res: Response): Promise<void> => {
         id: bestMatch.id,
         name: bestMatch.name,
         email: bestMatch.email,
-        username: bestMatch.username,
+        userID: bestMatch.userID,
+        university: bestMatch.university,
         role: bestMatch.role,
         approvalStatus: bestMatch.approvalStatus,
         isActive: true,

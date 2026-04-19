@@ -54,7 +54,11 @@ const KEYWORD_STOP_WORDS = new Set([
 ]);
 
 const normalizeForKeywordMatch = (value: string): string =>
-  value.toLowerCase().replace(/[^a-z0-9\s]+/g, " ").replace(/\s+/g, " ").trim();
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
 const extractKeywords = (value: string): string[] => {
   const normalized = normalizeForKeywordMatch(value);
@@ -64,6 +68,27 @@ const extractKeywords = (value: string): string[] => {
 
   return [...new Set(tokens)].slice(0, 8);
 };
+
+type CommonDoubtsWindow = "all" | "30d" | "90d";
+
+interface CommonDoubtCandidate {
+  id: string;
+  title: string;
+  subject: string;
+  views: number;
+  upVoteCount: number;
+  answerCount: number;
+  createdAt: Date;
+}
+
+interface CommonDoubtTopicBucket {
+  key: string;
+  label: string;
+  count: number;
+  engagementScore: number;
+  newestAt: number;
+  topDoubts: CommonDoubtCandidate[];
+}
 
 const getLatestSuperAdminDoubtSubjects = async (): Promise<string[]> => {
   try {
@@ -185,7 +210,7 @@ export const createStudentProfile = async (
     const profile = await prisma.studentProfile.create({
       data: {
         userId,
-        enrollmentNumber: enrollmentNumber || user.username,
+        enrollmentNumber: enrollmentNumber || user.userID,
         department: department || "",
         branch: branch || "",
         semester: semester || 1,
@@ -230,7 +255,7 @@ export const getStudentProfile = async (
             id: true,
             name: true,
             email: true,
-            username: true,
+            userID: true,
           },
         },
       },
@@ -469,6 +494,10 @@ export const getComplaints = async (
         updatedAt: true,
         assignedAt: true,
         resolutionNote: true,
+        studentConfirmed: true,
+        studentConfirmationDate: true,
+        feedbackRating: true,
+        feedbackComment: true,
         studentRejectionMessage: true,
         escalationCount: true,
         assignmentHistory: true,
@@ -510,16 +539,23 @@ export const getSimilarDoubtSuggestions = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const query = typeof req.query.query === "string" ? req.query.query.trim() : "";
+    const query =
+      typeof req.query.query === "string" ? req.query.query.trim() : "";
     const subject =
-      typeof req.query.subject === "string" ? req.query.subject.trim() : undefined;
+      typeof req.query.subject === "string"
+        ? req.query.subject.trim()
+        : undefined;
     const semesterRaw =
-      typeof req.query.semester === "string" ? Number(req.query.semester) : undefined;
+      typeof req.query.semester === "string"
+        ? Number(req.query.semester)
+        : undefined;
     const limitRaw =
       typeof req.query.limit === "string" ? Number(req.query.limit) : undefined;
 
     const semester =
-      typeof semesterRaw === "number" && Number.isInteger(semesterRaw) && semesterRaw >= 1
+      typeof semesterRaw === "number" &&
+      Number.isInteger(semesterRaw) &&
+      semesterRaw >= 1
         ? semesterRaw
         : undefined;
 
@@ -536,10 +572,12 @@ export const getSimilarDoubtSuggestions = async (
     const normalizedQuery = normalizeForKeywordMatch(query);
     const keywords = extractKeywords(query);
 
-    const keywordClauses: Prisma.DoubtWhereInput[] = keywords.flatMap((keyword) => [
-      { title: { contains: keyword, mode: "insensitive" } },
-      { description: { contains: keyword, mode: "insensitive" } },
-    ]);
+    const keywordClauses: Prisma.DoubtWhereInput[] = keywords.flatMap(
+      (keyword) => [
+        { title: { contains: keyword, mode: "insensitive" } },
+        { description: { contains: keyword, mode: "insensitive" } },
+      ],
+    );
 
     const queryClauses: Prisma.DoubtWhereInput[] = [
       { title: { contains: query, mode: "insensitive" } },
@@ -553,6 +591,7 @@ export const getSimilarDoubtSuggestions = async (
     }
 
     const where: Prisma.DoubtWhereInput = {
+      postedBy: { university: req.user!.university },
       ...(subject ? { subject } : {}),
       ...(semester ? { semester } : {}),
       OR: orClauses,
@@ -685,7 +724,7 @@ export const postDoubt = async (
             select: {
               id: true,
               name: true,
-              username: true,
+              userID: true,
               studentProfile: {
                 select: {
                   semester: true,
@@ -740,6 +779,8 @@ export const getDoubts = async (
       ];
     }
 
+    where.postedBy = { university: req.user!.university };
+
     const doubts = await prisma.doubt.findMany({
       where,
       include: {
@@ -747,7 +788,7 @@ export const getDoubts = async (
           select: {
             id: true,
             name: true,
-            username: true,
+            userID: true,
             studentProfile: {
               select: {
                 semester: true,
@@ -772,6 +813,126 @@ export const getDoubts = async (
   }
 };
 
+// 11b. Get Subjectwise doubts analytics (hybrid ranking)
+export const getSubjectWiseDoubtsAnalytics = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const rawWindow = String(req.query.window || "all").toLowerCase();
+    const window: CommonDoubtsWindow =
+      rawWindow === "30d" || rawWindow === "90d" || rawWindow === "all"
+        ? rawWindow
+        : "all";
+
+    const now = new Date();
+    const createdAtGte =
+      window === "30d"
+        ? new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+        : window === "90d"
+          ? new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+          : null;
+
+    const where: Prisma.DoubtWhereInput = createdAtGte
+      ? {
+          createdAt: { gte: createdAtGte },
+          postedBy: { university: req.user!.university },
+        }
+      : {
+          postedBy: { university: req.user!.university },
+        };
+
+    const doubts = await prisma.doubt.findMany({
+      where,
+      select: {
+        id: true,
+        title: true,
+        subject: true,
+        views: true,
+        upVoteCount: true,
+        answerCount: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 3000,
+    });
+
+    const buckets = new Map<string, CommonDoubtTopicBucket>();
+
+    for (const doubt of doubts) {
+      const label = doubt.subject.trim();
+      const key = label.toUpperCase();
+      const engagement =
+        doubt.views + 2 * doubt.upVoteCount + 2 * doubt.answerCount;
+
+      const existing = buckets.get(key);
+      if (!existing) {
+        buckets.set(key, {
+          key,
+          label,
+          count: 1,
+          engagementScore: engagement,
+          newestAt: doubt.createdAt.getTime(),
+          topDoubts: [doubt],
+        });
+        continue;
+      }
+
+      existing.count += 1;
+      existing.engagementScore += engagement;
+      existing.newestAt = Math.max(
+        existing.newestAt,
+        doubt.createdAt.getTime(),
+      );
+      existing.topDoubts.push(doubt);
+    }
+
+    const topics = Array.from(buckets.values())
+      .map((bucket) => {
+        const topDoubts = bucket.topDoubts
+          .sort((a, b) => {
+            const aScore = a.views + 2 * a.upVoteCount + 2 * a.answerCount;
+            const bScore = b.views + 2 * b.upVoteCount + 2 * b.answerCount;
+            if (bScore !== aScore) return bScore - aScore;
+            return b.createdAt.getTime() - a.createdAt.getTime();
+          })
+          .slice(0, 3)
+          .map((d) => ({
+            id: d.id,
+            title: d.title,
+            views: d.views,
+            upVoteCount: d.upVoteCount,
+            answerCount: d.answerCount,
+          }));
+
+        return {
+          key: bucket.key,
+          label: bucket.label,
+          count: bucket.count,
+          engagementScore: bucket.engagementScore,
+          topDoubts,
+        };
+      })
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        if (b.engagementScore !== a.engagementScore) {
+          return b.engagementScore - a.engagementScore;
+        }
+        return a.label.localeCompare(b.label);
+      })
+      .slice(0, 10);
+
+    res.json({
+      window,
+      generatedAt: now.toISOString(),
+      topics,
+    });
+  } catch (error) {
+    console.error("Error fetching SubjectWise doubts analytics:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
 // 12. Get a single doubt by ID with all answers
 export const getDoubtById = async (
   req: AuthRequest,
@@ -781,14 +942,17 @@ export const getDoubtById = async (
     const id = req.params.id as string;
     const userId = req.user!.id;
 
-    const doubt = await prisma.doubt.findUnique({
-      where: { id },
+    const doubt = await prisma.doubt.findFirst({
+      where: {
+        id,
+        postedBy: { university: req.user!.university },
+      },
       include: {
         postedBy: {
           select: {
             id: true,
             name: true,
-            username: true,
+            userID: true,
             studentProfile: {
               select: {
                 semester: true,
@@ -803,7 +967,7 @@ export const getDoubtById = async (
               select: {
                 id: true,
                 name: true,
-                username: true,
+                userID: true,
                 role: true,
                 facultyProfile: {
                   select: {
@@ -823,7 +987,7 @@ export const getDoubtById = async (
               select: {
                 id: true,
                 name: true,
-                username: true,
+                userID: true,
                 role: true,
               },
             },
@@ -1258,7 +1422,7 @@ export const postAnswer = async (
             select: {
               id: true,
               name: true,
-              username: true,
+              userID: true,
               role: true,
               studentProfile: {
                 select: {
@@ -1272,7 +1436,7 @@ export const postAnswer = async (
             select: {
               id: true,
               name: true,
-              username: true,
+              userID: true,
               role: true,
             },
           },
@@ -1481,7 +1645,7 @@ export const getMyAnswers = async (
           select: {
             id: true,
             name: true,
-            username: true,
+            userID: true,
             role: true,
           },
         },
@@ -1495,7 +1659,7 @@ export const getMyAnswers = async (
             postedBy: {
               select: {
                 name: true,
-                username: true,
+                userID: true,
               },
             },
           },
@@ -1529,7 +1693,7 @@ export const getMyAnswerForDoubt = async (
           select: {
             id: true,
             name: true,
-            username: true,
+            userID: true,
             role: true,
           },
         },
@@ -1537,7 +1701,7 @@ export const getMyAnswerForDoubt = async (
           select: {
             id: true,
             name: true,
-            username: true,
+            userID: true,
             studentProfile: {
               select: {
                 semester: true,
@@ -1802,6 +1966,103 @@ export const rejectComplaintResolution = async (
     });
   } catch (error) {
     console.error("Reject complaint resolution error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// 24. Submit Complaint Feedback (Student)
+export const submitComplaintFeedback = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const complaintId = req.params.complaintId as string;
+    const { feedbackRating, feedbackComment } = req.body as {
+      feedbackRating?: unknown;
+      feedbackComment?: unknown;
+    };
+
+    if (!complaintId) {
+      res.status(400).json({ error: "Complaint ID is required" });
+      return;
+    }
+
+    if (
+      typeof feedbackRating !== "number" ||
+      !Number.isInteger(feedbackRating) ||
+      feedbackRating < 1 ||
+      feedbackRating > 5
+    ) {
+      res
+        .status(400)
+        .json({ error: "Feedback rating must be an integer between 1 and 5" });
+      return;
+    }
+
+    if (
+      feedbackComment !== undefined &&
+      feedbackComment !== null &&
+      typeof feedbackComment !== "string"
+    ) {
+      res.status(400).json({ error: "Feedback comment must be a string" });
+      return;
+    }
+
+    const normalizedFeedbackComment =
+      typeof feedbackComment === "string" ? feedbackComment.trim() : "";
+
+    if (normalizedFeedbackComment.length > 1000) {
+      res.status(400).json({ error: "Feedback comment is too long" });
+      return;
+    }
+
+    const complaint = await prisma.complaint.findUnique({
+      where: { id: complaintId },
+      select: {
+        id: true,
+        raisedById: true,
+        status: true,
+        feedbackRating: true,
+      },
+    });
+
+    if (!complaint) {
+      res.status(404).json({ error: "Complaint not found" });
+      return;
+    }
+
+    if (complaint.raisedById !== req.user!.id) {
+      res.status(403).json({
+        error: "You can only submit feedback for your own complaints",
+      });
+      return;
+    }
+
+    if (complaint.status !== "RESOLVED") {
+      res.status(400).json({
+        error: "Feedback can only be submitted after complaint is resolved",
+      });
+      return;
+    }
+
+    if (complaint.feedbackRating !== null) {
+      res
+        .status(400)
+        .json({ error: "Feedback already submitted for this complaint" });
+      return;
+    }
+
+    await prisma.complaint.update({
+      where: { id: complaintId },
+      data: {
+        feedbackRating,
+        feedbackComment: normalizedFeedbackComment || null,
+      },
+    });
+
+    res.json({ message: "Feedback submitted successfully" });
+  } catch (error) {
+    console.error("Submit complaint feedback error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

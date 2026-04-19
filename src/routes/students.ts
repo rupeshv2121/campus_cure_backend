@@ -16,11 +16,13 @@ import {
   getSimilarDoubtSuggestions,
   getStudentPostingSettings,
   getStudentProfile,
+  getSubjectWiseDoubtsAnalytics,
   markAnswerAsAccepted,
-  postDoubt,
   postAnswer,
+  postDoubt,
   raiseComplaint,
   rejectComplaintResolution,
+  submitComplaintFeedback,
   updateStudentProfile,
   upvoteAnswer,
 } from "../controllers/studentController.js";
@@ -72,6 +74,14 @@ router.get(
   authenticate,
   authorize(Role.STUDENT),
   getSimilarDoubtSuggestions,
+);
+
+// 11b. Get SubjectWise doubts analytics
+router.get(
+  "/doubts/analytics/subjectwise",
+  authenticate,
+  authorize(Role.STUDENT),
+  getSubjectWiseDoubtsAnalytics,
 );
 
 // 12. Get student's own doubts
@@ -160,6 +170,14 @@ router.post(
   authenticate,
   authorize(Role.STUDENT),
   rejectComplaintResolution,
+);
+
+// 24. Submit complaint feedback (after resolution)
+router.post(
+  "/complaints/:complaintId/feedback",
+  authenticate,
+  authorize(Role.STUDENT),
+  submitComplaintFeedback,
 );
 
 export default router;

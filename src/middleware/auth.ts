@@ -21,7 +21,8 @@ export const authenticate = async (
     const decoded = jwt.verify(token, JWT_SECRET) as {
       id: string;
       role: Role;
-      username: string;
+      userID: string;
+      university?: string;
     };
 
     // Verify user exists and is active
@@ -34,7 +35,12 @@ export const authenticate = async (
       return;
     }
 
-    req.user = decoded;
+    req.user = {
+      id: user.id,
+      role: user.role,
+      userID: user.userID,
+      university: user.university,
+    };
     next();
   } catch (error) {
     res.status(401).json({ error: "Invalid or expired token" });

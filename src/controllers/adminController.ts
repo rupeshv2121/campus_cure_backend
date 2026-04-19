@@ -118,7 +118,7 @@ export const getAdminProfile = async (
             id: true,
             name: true,
             email: true,
-            username: true,
+            userID: true,
             role: true,
           },
         },
@@ -153,7 +153,7 @@ export const updateAdminProfile = async (
     const updatedUser = await prisma.user.update({
       where: { id: req.user!.id },
       data: { name: String(name).trim() },
-      select: { id: true, name: true, email: true, username: true, role: true },
+      select: { id: true, name: true, email: true, userID: true, role: true },
     });
 
     res.json({ user: updatedUser });
@@ -173,6 +173,7 @@ export const getPendingStudents = async (
       where: {
         role: Role.STUDENT,
         approvalStatus: ApprovalStatus.PENDING,
+        university: req.user!.university,
       },
       include: {
         studentProfile: true,
@@ -199,6 +200,7 @@ export const getPendingFaculty = async (
       where: {
         role: Role.FACULTY,
         approvalStatus: ApprovalStatus.PENDING,
+        university: req.user!.university,
       },
       include: {
         facultyProfile: true,
@@ -958,12 +960,23 @@ export const getAllUsers = async (
   res: Response,
 ): Promise<void> => {
   try {
+    const whereClause =
+      req.user!.role === Role.ADMIN
+        ? {
+            university: req.user!.university,
+            role: { not: Role.SUPER_ADMIN },
+          }
+        : {
+            university: req.user!.university,
+          };
+
     const users = await prisma.user.findMany({
+      where: whereClause,
       select: {
         id: true,
         name: true,
         email: true,
-        username: true,
+        userID: true,
         role: true,
         approvalStatus: true,
         isActive: true,
@@ -1114,11 +1127,15 @@ export const toggleUserActiveStatus = async (
       return;
     }
 
-    // Authorization check: Admin can update Student/Faculty, Super Admin can update Anyone
-    if (req.user!.role === Role.ADMIN && userToUpdate.role === Role.ADMIN) {
-      res
-        .status(403)
-        .json({ error: "Only Super Admin can modify Admin users" });
+    // Authorization check: Admin can update only student/faculty users.
+    if (
+      req.user!.role === Role.ADMIN &&
+      (userToUpdate.role === Role.ADMIN ||
+        userToUpdate.role === Role.SUPER_ADMIN)
+    ) {
+      res.status(403).json({
+        error: "Only Super Admin can modify Admin or Super Admin users",
+      });
       return;
     }
 
@@ -1177,11 +1194,15 @@ export const updateUserApprovalStatus = async (
       return;
     }
 
-    // Authorization check: Admin can update Student/Faculty, Super Admin can update Anyone
-    if (req.user!.role === Role.ADMIN && userToUpdate.role === Role.ADMIN) {
-      res
-        .status(403)
-        .json({ error: "Only Super Admin can modify Admin users" });
+    // Authorization check: Admin can update only student/faculty users.
+    if (
+      req.user!.role === Role.ADMIN &&
+      (userToUpdate.role === Role.ADMIN ||
+        userToUpdate.role === Role.SUPER_ADMIN)
+    ) {
+      res.status(403).json({
+        error: "Only Super Admin can modify Admin or Super Admin users",
+      });
       return;
     }
 
@@ -1250,7 +1271,7 @@ export const getSuperAdminStats = async (
               id: true,
               name: true,
               email: true,
-              username: true,
+              userID: true,
               approvalStatus: true,
               isActive: true,
               createdAt: true,
