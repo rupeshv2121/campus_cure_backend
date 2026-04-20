@@ -25,6 +25,7 @@ import {
   submitComplaintFeedback,
   updateStudentProfile,
   upvoteAnswer,
+  upvoteDoubt,
 } from "../controllers/studentController.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 
@@ -125,6 +126,14 @@ router.post(
   authenticate,
   authorize(Role.STUDENT),
   upvoteAnswer,
+);
+
+// 17a. Upvote a doubt (student/faculty)
+router.post(
+  "/doubts/:doubtId/upvote",
+  authenticate,
+  authorize(Role.STUDENT, Role.FACULTY),
+  upvoteDoubt,
 );
 
 // 17b. Edit own answer (allowed only while pending moderation)

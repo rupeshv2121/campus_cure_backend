@@ -13,6 +13,7 @@ import {
   postAnswer,
   updateComplaintStatus,
   updateFacultyProfile,
+  upvoteDoubt,
   verifyAnswer,
 } from "../controllers/facultyController.js";
 import { authenticate, authorize } from "../middleware/auth.js";
@@ -35,6 +36,14 @@ router.get("/doubts", authenticate, authorize(Role.FACULTY), getDoubts);
 
 // 12. Get a single doubt by ID
 router.get("/doubts/:id", authenticate, authorize(Role.FACULTY), getDoubtById);
+
+// 12a. Upvote a doubt
+router.post(
+  "/doubts/:doubtId/upvote",
+  authenticate,
+  authorize(Role.FACULTY),
+  upvoteDoubt,
+);
 
 // ========== ANSWERS ==========
 

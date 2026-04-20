@@ -1052,15 +1052,35 @@ export const updateComplaintStatus = async (
       updateData.resolutionNote = resolutionNote;
     }
 
-    // Set resolution date when marking as PENDING_CONFIRMATION
+    // Set confirmation timing when marking as PENDING_CONFIRMATION.
     if (status === "PENDING_CONFIRMATION") {
       updateData.resolutionDate = new Date();
+      updateData.pendingConfirmationAt = new Date();
+    } else {
+      // Clear stale pending timestamp when moving to other statuses.
+      updateData.pendingConfirmationAt = null;
     }
 
-    await prisma.complaint.update({
-      where: { id: complaintId },
-      data: updateData,
-    });
+    try {
+      await prisma.complaint.update({
+        where: { id: complaintId },
+        data: updateData,
+      });
+    } catch (updateError) {
+      // Backward compatibility: retry without pendingConfirmationAt if migration is pending.
+      if (
+        updateError instanceof Prisma.PrismaClientKnownRequestError &&
+        updateError.code === "P2022"
+      ) {
+        const { pendingConfirmationAt: _ignored, ...fallbackData } = updateData;
+        await prisma.complaint.update({
+          where: { id: complaintId },
+          data: fallbackData,
+        });
+      } else {
+        throw updateError;
+      }
+    }
 
     // Send notification for status change
     try {

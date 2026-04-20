@@ -7,6 +7,13 @@ import {
   notifyDoubtAnswer,
 } from "../utils/notifications.js";
 
+const isDoubtUpvoteSchemaMissingError = (error: unknown): boolean => {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    (error.code === "P2021" || error.code === "P2022")
+  );
+};
+
 // 1. Create Faculty Profile
 export const createFacultyProfile = async (
   req: Request,
@@ -308,12 +315,15 @@ export const updateComplaintStatus = async (
       updateData.resolutionNote = resolutionNote;
     }
 
-    // Set resolution date when marking as PENDING_CONFIRMATION
+    // Set confirmation timing when marking as PENDING_CONFIRMATION.
     if (status === "PENDING_CONFIRMATION") {
       updateData.resolutionDate = new Date();
       updateData.pendingConfirmationAt = new Date();
       // Reset handledBySuperAdmin flag when faculty provides new resolution
       updateData.handledBySuperAdmin = false;
+    } else {
+      // If complaint moves back to IN_PROGRESS, clear stale pending timestamp.
+      updateData.pendingConfirmationAt = null;
     }
 
     try {
@@ -957,9 +967,117 @@ export const getDoubtById = async (
       return;
     }
 
-    res.json({ doubt });
+    let doubtUpvote: { id: string } | null = null;
+    try {
+      doubtUpvote = await prisma.doubtUpvote.findUnique({
+        where: {
+          doubtId_userId: {
+            doubtId: id,
+            userId,
+          },
+        },
+        select: { id: true },
+      });
+    } catch (upvoteReadError) {
+      // Backward compatibility: allow doubt details even if upvote table migration isn't applied yet.
+      if (!isDoubtUpvoteSchemaMissingError(upvoteReadError)) {
+        throw upvoteReadError;
+      }
+    }
+
+    res.json({
+      doubt: {
+        ...doubt,
+        isUpvotedByUser: Boolean(doubtUpvote),
+      },
+    });
   } catch (error) {
     console.error("Error fetching doubt:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// 15b. Upvote a doubt (toggle)
+export const upvoteDoubt = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const doubtId = req.params.doubtId as string;
+    const userId = req.user?.id as string;
+
+    const doubt = await prisma.doubt.findUnique({
+      where: { id: doubtId },
+      include: {
+        postedBy: {
+          select: {
+            university: true,
+          },
+        },
+      },
+    });
+
+    if (!doubt || doubt.postedBy.university !== req.user!.university) {
+      res.status(404).json({ error: "Doubt not found" });
+      return;
+    }
+
+    const existingUpvote = await prisma.doubtUpvote.findUnique({
+      where: {
+        doubtId_userId: {
+          doubtId,
+          userId,
+        },
+      },
+    });
+
+    let message: string;
+    let updatedDoubt;
+
+    if (existingUpvote) {
+      [, updatedDoubt] = await prisma.$transaction([
+        prisma.doubtUpvote.delete({
+          where: {
+            id: existingUpvote.id,
+          },
+        }),
+        prisma.doubt.update({
+          where: { id: doubtId },
+          data: { upVoteCount: { decrement: 1 } },
+        }),
+      ]);
+      message = "Doubt upvote removed successfully";
+    } else {
+      [, updatedDoubt] = await prisma.$transaction([
+        prisma.doubtUpvote.create({
+          data: {
+            doubtId,
+            userId,
+          },
+        }),
+        prisma.doubt.update({
+          where: { id: doubtId },
+          data: { upVoteCount: { increment: 1 } },
+        }),
+      ]);
+      message = "Doubt upvoted successfully";
+    }
+
+    res.json({
+      message,
+      doubt: updatedDoubt,
+      isUpvoted: !existingUpvote,
+      upVoteCount: updatedDoubt.upVoteCount,
+    });
+  } catch (error) {
+    if (isDoubtUpvoteSchemaMissingError(error)) {
+      res.status(503).json({
+        error:
+          "Doubt upvote feature is temporarily unavailable until database migration is applied",
+      });
+      return;
+    }
+    console.error("Error toggling doubt upvote:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

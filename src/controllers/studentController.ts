@@ -90,6 +90,13 @@ interface CommonDoubtTopicBucket {
   topDoubts: CommonDoubtCandidate[];
 }
 
+const isDoubtUpvoteSchemaMissingError = (error: unknown): boolean => {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    (error.code === "P2021" || error.code === "P2022")
+  );
+};
+
 const getLatestSuperAdminDoubtSubjects = async (): Promise<string[]> => {
   try {
     const rows = await prisma.$queryRaw<
@@ -806,7 +813,34 @@ export const getDoubts = async (
       orderBy: { createdAt: "desc" },
     });
 
-    res.json({ doubts });
+    let userDoubtUpvotes: Array<{ doubtId: string }> = [];
+    try {
+      userDoubtUpvotes = await prisma.doubtUpvote.findMany({
+        where: {
+          userId: req.user!.id,
+          doubtId: {
+            in: doubts.map((doubt) => doubt.id),
+          },
+        },
+        select: {
+          doubtId: true,
+        },
+      });
+    } catch (upvoteReadError) {
+      // Backward compatibility: allow doubts listing even if upvote table migration isn't applied yet.
+      if (!isDoubtUpvoteSchemaMissingError(upvoteReadError)) {
+        throw upvoteReadError;
+      }
+    }
+
+    const upvotedDoubtIds = new Set(userDoubtUpvotes.map((uv) => uv.doubtId));
+
+    res.json({
+      doubts: doubts.map((doubt) => ({
+        ...doubt,
+        isUpvotedByUser: upvotedDoubtIds.has(doubt.id),
+      })),
+    });
   } catch (error) {
     console.error("Error fetching doubts:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -1052,10 +1086,29 @@ export const getDoubtById = async (
       isUpvotedByUser: upvotedAnswerIds.has(answer.id),
     }));
 
+    let doubtUpvote: { id: string } | null = null;
+    try {
+      doubtUpvote = await prisma.doubtUpvote.findUnique({
+        where: {
+          doubtId_userId: {
+            doubtId: id,
+            userId,
+          },
+        },
+        select: { id: true },
+      });
+    } catch (upvoteReadError) {
+      // Backward compatibility: allow doubt details even if upvote table migration isn't applied yet.
+      if (!isDoubtUpvoteSchemaMissingError(upvoteReadError)) {
+        throw upvoteReadError;
+      }
+    }
+
     res.json({
       doubt: {
         ...doubt,
         answers: answersWithUpvoteStatus,
+        isUpvotedByUser: Boolean(doubtUpvote),
       },
     });
   } catch (error) {
@@ -1373,6 +1426,91 @@ export const upvoteAnswer = async (
     res.json({ message, answer, isUpvoted: !existingUpvote });
   } catch (error) {
     console.error("Error toggling answer upvote:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// 16b. Upvote a doubt (toggle)
+export const upvoteDoubt = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const doubtId = req.params.doubtId as string;
+    const userId = req.user?.id as string;
+
+    const doubt = await prisma.doubt.findUnique({
+      where: { id: doubtId },
+      include: {
+        postedBy: {
+          select: {
+            university: true,
+          },
+        },
+      },
+    });
+
+    if (!doubt || doubt.postedBy.university !== req.user!.university) {
+      res.status(404).json({ error: "Doubt not found" });
+      return;
+    }
+
+    const existingUpvote = await prisma.doubtUpvote.findUnique({
+      where: {
+        doubtId_userId: {
+          doubtId,
+          userId,
+        },
+      },
+    });
+
+    let message: string;
+    let updatedDoubt;
+
+    if (existingUpvote) {
+      [, updatedDoubt] = await prisma.$transaction([
+        prisma.doubtUpvote.delete({
+          where: {
+            id: existingUpvote.id,
+          },
+        }),
+        prisma.doubt.update({
+          where: { id: doubtId },
+          data: { upVoteCount: { decrement: 1 } },
+        }),
+      ]);
+      message = "Doubt upvote removed successfully";
+    } else {
+      [, updatedDoubt] = await prisma.$transaction([
+        prisma.doubtUpvote.create({
+          data: {
+            doubtId,
+            userId,
+          },
+        }),
+        prisma.doubt.update({
+          where: { id: doubtId },
+          data: { upVoteCount: { increment: 1 } },
+        }),
+      ]);
+      message = "Doubt upvoted successfully";
+    }
+
+    res.json({
+      message,
+      doubt: updatedDoubt,
+      isUpvoted: !existingUpvote,
+      upVoteCount: updatedDoubt.upVoteCount,
+    });
+  } catch (error) {
+    if (isDoubtUpvoteSchemaMissingError(error)) {
+      res.status(503).json({
+        error:
+          "Doubt upvote feature is temporarily unavailable until database migration is applied",
+      });
+      return;
+    }
+    console.error("Error toggling doubt upvote:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
