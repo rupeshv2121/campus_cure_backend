@@ -472,8 +472,9 @@ export const getComplaints = async (
   res: Response,
 ): Promise<void> => {
   try {
+    // Return all complaints for student view so every student sees the same list
     const complaints = await prisma.complaint.findMany({
-      where: { raisedById: req.user!.id },
+      where: {},
       select: {
         id: true,
         title: true,
@@ -1735,8 +1736,9 @@ export const getMyDoubts = async (
   res: Response,
 ): Promise<void> => {
   try {
+    // Return all doubts so students see the same global list
     const doubts = await prisma.doubt.findMany({
-      where: { postedById: req.user!.id },
+      where: {},
       include: {
         _count: {
           select: {
