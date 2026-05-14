@@ -684,27 +684,9 @@ export const getAllComplaints = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const userRole = req.user!.role;
-
-    // Build filter based on role
-    let whereClause: any = {};
-
-    // Regular admins should not see complaints escalated to superadmin
-    if (userRole === Role.ADMIN) {
-      whereClause = {
-        AND: [
-          {
-            escalationCount: {
-              lte: 0,
-            },
-          },
-          {
-            handledBySuperAdmin: false,
-          },
-        ],
-      };
-    }
-    // SuperAdmins can see all complaints (no filter needed)
+    // Return all complaints for the admin complaints view —
+    // do not filter by university or hide escalated items.
+    const whereClause: any = {};
 
     const complaints = await prisma.complaint.findMany({
       where: whereClause,
