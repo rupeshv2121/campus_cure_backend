@@ -1,7 +1,3 @@
-/**
- * Retry utility for database operations that may timeout
- */
-
 interface RetryOptions {
   maxRetries?: number;
   delayMs?: number;

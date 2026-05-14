@@ -31,7 +31,7 @@ import { authenticate, authorize } from "../middleware/auth.js";
 
 const router = Router();
 
-// 11. Get Pending Students (Admin)
+// 1. Get Pending Students (Admin)
 router.get(
   "/pending/students",
   authenticate,
@@ -39,7 +39,7 @@ router.get(
   getPendingStudents,
 );
 
-// 12. Get Pending Faculty (Admin)
+// 2. Get Pending Faculty (Admin)
 router.get(
   "/pending/faculty",
   authenticate,
@@ -47,10 +47,10 @@ router.get(
   getPendingFaculty,
 );
 
-// 13. Create Admin Profile
+// 3. Create Admin Profile
 router.post("/", createAdminProfile);
 
-// Get Admin Profile
+// 4. Get Admin Profile
 router.get(
   "/me",
   authenticate,
@@ -58,7 +58,7 @@ router.get(
   getAdminProfile,
 );
 
-// Update Admin Profile
+// 5. Update Admin Profile
 router.put(
   "/me",
   authenticate,
@@ -66,7 +66,7 @@ router.put(
   updateAdminProfile,
 );
 
-// Super Admin: System-wide stats
+// 6. Super Admin: System-wide stats
 router.get(
   "/super/stats",
   authenticate,
@@ -74,7 +74,7 @@ router.get(
   getSuperAdminStats,
 );
 
-// Super Admin: Get system settings
+// 7. Super Admin: Get system settings
 router.get(
   "/super/settings",
   authenticate,
@@ -82,7 +82,7 @@ router.get(
   getSuperAdminSettings,
 );
 
-// Super Admin: Update system settings
+// 8. Super Admin: Update system settings
 router.put(
   "/super/settings",
   authenticate,
@@ -90,7 +90,7 @@ router.put(
   updateSuperAdminSettings,
 );
 
-// Super Admin: Update another admin's permissions
+// 9. Super Admin: Update another admin's permissions
 router.put(
   "/permissions/:adminProfileId",
   authenticate,
@@ -98,7 +98,7 @@ router.put(
   updateAdminPermissions,
 );
 
-// 14. Get Pending Admins (Super Admin)
+// 10. Get Pending Admins (Super Admin)
 router.get(
   "/pending/admins",
   authenticate,
@@ -106,7 +106,7 @@ router.get(
   getPendingAdmins,
 );
 
-// 15. Approve User
+// 11. Approve User
 router.put(
   "/approve/:userId",
   authenticate,
@@ -114,7 +114,7 @@ router.put(
   approveUser,
 );
 
-// 16. Reject User
+// 12. Reject User
 router.put(
   "/reject/:userId",
   authenticate,
@@ -122,7 +122,7 @@ router.put(
   rejectUser,
 );
 
-// 17. Get Dashboard Stats
+// 13. Get Dashboard Stats
 router.get(
   "/dashboard",
   authenticate,
@@ -130,7 +130,7 @@ router.get(
   getDashboardStats,
 );
 
-// 18. Get Analytics
+// 14. Get Analytics
 router.get(
   "/analytics",
   authenticate,
@@ -138,7 +138,7 @@ router.get(
   getAnalytics,
 );
 
-// 19. Get All Complaints (Admin)
+// 15. Get All Complaints (Admin)
 router.get(
   "/complaints",
   authenticate,
@@ -146,7 +146,7 @@ router.get(
   getAllComplaints,
 );
 
-// 20. Get Approved Faculty (Admin)
+// 16. Get Approved Faculty (Admin)
 router.get(
   "/faculty",
   authenticate,
@@ -154,7 +154,7 @@ router.get(
   getApprovedFaculty,
 );
 
-// 21. Assign Complaint (Admin)
+// 17. Assign Complaint (Admin)
 router.post(
   "/complaints/assign",
   authenticate,
@@ -162,7 +162,7 @@ router.post(
   assignComplaint,
 );
 
-// 22. Get User Details
+// 18. Get User Details
 router.get(
   "/users",
   authenticate,
@@ -170,7 +170,7 @@ router.get(
   getAllUsers,
 );
 
-// 23. Update Complaint Status (Admin)
+// 19. Update Complaint Status (Admin)
 router.put(
   "/complaints/status",
   authenticate,
@@ -178,7 +178,7 @@ router.put(
   updateComplaintStatus,
 );
 
-// 24. Toggle User Active Status
+// 20. Toggle User Active Status
 router.put(
   "/users/:userId/active",
   authenticate,
@@ -186,7 +186,7 @@ router.put(
   toggleUserActiveStatus,
 );
 
-// 25. Update User Approval Status
+// 21. Update User Approval Status
 router.put(
   "/users/:userId/approval",
   authenticate,
@@ -194,7 +194,7 @@ router.put(
   updateUserApprovalStatus,
 );
 
-// Debug: Get all faculty for troubleshooting
+// 22. Debug: Get all faculty for troubleshooting
 router.get(
   "/debug/faculty",
   authenticate,
@@ -204,7 +204,7 @@ router.get(
 
 // ============ SUPER ADMIN COMPLAINT ESCALATION ROUTES ============
 
-// Get Escalated Complaints (Super Admin Only)
+// 23. Get Escalated Complaints (Super Admin Only)
 router.get(
   "/complaints/escalated",
   authenticate,
@@ -212,7 +212,7 @@ router.get(
   getEscalatedComplaints,
 );
 
-// Reassign Escalated Complaint (Super Admin Only)
+// 24. Reassign Escalated Complaint (Super Admin Only)
 router.post(
   "/complaints/escalated/reassign",
   authenticate,
@@ -220,7 +220,7 @@ router.post(
   reassignEscalatedComplaint,
 );
 
-// Mark Complaint as Handled by Super Admin
+// 25. Mark Complaint as Handled by Super Admin
 router.post(
   "/complaints/escalated/mark-handled",
   authenticate,
