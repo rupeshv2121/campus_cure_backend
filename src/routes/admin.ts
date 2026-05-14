@@ -4,7 +4,6 @@ import {
   approveUser,
   assignComplaint,
   createAdminProfile,
-  forceAutoAssignment,
   getAdminProfile,
   getAllComplaints,
   getAllFacultyDebug,
@@ -16,9 +15,8 @@ import {
   getPendingAdmins,
   getPendingFaculty,
   getPendingStudents,
-  getRoutingStatistics,
-  getSuperAdminStats,
   getSuperAdminSettings,
+  getSuperAdminStats,
   markComplaintAsHandled,
   reassignEscalatedComplaint,
   rejectUser,
@@ -194,22 +192,6 @@ router.put(
   authenticate,
   authorize(Role.ADMIN, Role.SUPER_ADMIN),
   updateUserApprovalStatus,
-);
-
-// 26. Get Auto-Routing Statistics
-router.get(
-  "/routing/stats",
-  authenticate,
-  authorize(Role.ADMIN, Role.SUPER_ADMIN),
-  getRoutingStatistics,
-);
-
-// 27. Force Auto-Assignment for Complaint
-router.post(
-  "/complaints/:complaintId/auto-assign",
-  authenticate,
-  authorize(Role.ADMIN, Role.SUPER_ADMIN),
-  forceAutoAssignment,
 );
 
 // Debug: Get all faculty for troubleshooting

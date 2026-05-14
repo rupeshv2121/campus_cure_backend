@@ -2,11 +2,13 @@ import { ApprovalStatus, DoubtStatus, Prisma, Role } from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
 import type { AuthRequest, RejectionHistoryEntry } from "../types/index.js";
-import { autoAssignComplaint } from "../utils/autoRouting.js";
 import {
   createNotification,
   notifyComplaintStatusChange,
 } from "../utils/notifications.js";
+
+const isTenDigitPhoneNumber = (value: unknown): boolean =>
+  typeof value === "string" && /^\d{10}$/.test(value.trim());
 
 const DEFAULT_ALLOWED_COMPLAINT_CATEGORIES = [
   "PROJECTOR",
@@ -332,7 +334,18 @@ export const updateStudentProfile = async (
     }
 
     if (phoneNumber !== undefined) {
-      data.phoneNumber = String(phoneNumber).trim();
+      const normalizedPhoneNumber = String(phoneNumber).trim();
+      if (
+        normalizedPhoneNumber.length > 0 &&
+        !isTenDigitPhoneNumber(normalizedPhoneNumber)
+      ) {
+        res
+          .status(400)
+          .json({ error: "Phone number must be exactly 10 digits" });
+        return;
+      }
+
+      data.phoneNumber = normalizedPhoneNumber;
     }
 
     if (address !== undefined) {
@@ -344,7 +357,18 @@ export const updateStudentProfile = async (
     }
 
     if (guardianPhone !== undefined) {
-      data.guardianPhone = String(guardianPhone).trim();
+      const normalizedGuardianPhone = String(guardianPhone).trim();
+      if (
+        normalizedGuardianPhone.length > 0 &&
+        !isTenDigitPhoneNumber(normalizedGuardianPhone)
+      ) {
+        res
+          .status(400)
+          .json({ error: "Guardian phone number must be exactly 10 digits" });
+        return;
+      }
+
+      data.guardianPhone = normalizedGuardianPhone;
     }
 
     if (Object.keys(data).length === 0) {
@@ -432,47 +456,9 @@ export const raiseComplaint = async (
       }),
     ]);
 
-    // Attempt auto-assignment
-    try {
-      const autoAssignResult = await autoAssignComplaint(
-        complaint.id,
-        category,
-        block,
-      );
-
-      if (autoAssignResult.success) {
-        console.log(
-          `Complaint auto-assigned to: ${autoAssignResult.assignedTo?.name}`,
-        );
-
-        // Send notification to the student about assignment
-        await notifyComplaintStatusChange(
-          req.user!.id,
-          complaint.title,
-          "RAISED",
-          "ASSIGNED",
-          complaint.id,
-        );
-
-        res.status(201).json({
-          message: "Complaint raised and auto-assigned successfully",
-          complaint,
-          autoAssigned: true,
-          assignedTo: autoAssignResult.assignedTo,
-        });
-        return;
-      } else {
-        console.log(`Auto-assignment failed: ${autoAssignResult.reason}`);
-      }
-    } catch (autoAssignError) {
-      console.error("Auto-assignment error:", autoAssignError);
-      // Continue with manual assignment flow
-    }
-
     res.status(201).json({
       message: "Complaint raised successfully - will be manually assigned",
       complaint,
-      autoAssigned: false,
     });
   } catch (error) {
     console.error("Error raising complaint:", error);
