@@ -2,7 +2,6 @@ import { AdminLevel, ApprovalStatus, Prisma, Role } from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
 import type { AuthRequest } from "../types/index.js";
-import { autoAssignComplaint, getRoutingStats } from "../utils/autoRouting.js";
 import {
   appendComplaintAssignmentHistory,
   buildComplaintAssignmentHistoryEntry,
@@ -1555,82 +1554,6 @@ export const getAllFacultyDebug = async (
     });
   } catch (error) {
     console.error("Get all faculty debug error:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
-
-// Get Auto-Routing Statistics
-export const getRoutingStatistics = async (
-  req: AuthRequest,
-  res: Response,
-): Promise<void> => {
-  try {
-    const stats = await getRoutingStats();
-    res.json({ success: true, stats });
-  } catch (error) {
-    console.error("Get routing statistics error:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
-
-// Force Auto-Assignment for a Complaint
-export const forceAutoAssignment = async (
-  req: AuthRequest,
-  res: Response,
-): Promise<void> => {
-  try {
-    const complaintId = req.params.complaintId as string;
-
-    if (!complaintId) {
-      res.status(400).json({ error: "Complaint ID is required" });
-      return;
-    }
-
-    // Get complaint details
-    const complaint = await prisma.complaint.findUnique({
-      where: { id: complaintId },
-      include: { raisedBy: true },
-    });
-
-    if (!complaint) {
-      res.status(404).json({ error: "Complaint not found" });
-      return;
-    }
-
-    if (complaint.assignedToId) {
-      res.status(400).json({ error: "Complaint is already assigned" });
-      return;
-    }
-
-    // Attempt auto-assignment
-    const result = await autoAssignComplaint(
-      complaintId,
-      complaint.category,
-      complaint.block,
-    );
-
-    if (result.success) {
-      // Send notification to student about assignment
-      await notifyComplaintStatusChange(
-        complaint.raisedById,
-        complaint.title,
-        complaint.status,
-        "ASSIGNED",
-        complaintId,
-      );
-
-      res.json({
-        message: "Complaint auto-assigned successfully",
-        assignedTo: result.assignedTo,
-      });
-    } else {
-      res.status(400).json({
-        error: "Auto-assignment failed",
-        reason: result.reason,
-      });
-    }
-  } catch (error) {
-    console.error("Force auto-assignment error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

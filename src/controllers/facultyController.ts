@@ -7,6 +7,9 @@ import {
   notifyDoubtAnswer,
 } from "../utils/notifications.js";
 
+const isTenDigitPhoneNumber = (value: unknown): boolean =>
+  typeof value === "string" && /^\d{10}$/.test(value.trim());
+
 const isDoubtUpvoteSchemaMissingError = (error: unknown): boolean => {
   return (
     error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -146,7 +149,18 @@ export const updateFacultyProfile = async (
     }
 
     if (phoneNumber !== undefined) {
-      data.phoneNumber = String(phoneNumber).trim();
+      const normalizedPhoneNumber = String(phoneNumber).trim();
+      if (
+        normalizedPhoneNumber.length > 0 &&
+        !isTenDigitPhoneNumber(normalizedPhoneNumber)
+      ) {
+        res
+          .status(400)
+          .json({ error: "Phone number must be exactly 10 digits" });
+        return;
+      }
+
+      data.phoneNumber = normalizedPhoneNumber;
     }
 
     if (address !== undefined) {
