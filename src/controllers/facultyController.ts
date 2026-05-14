@@ -227,9 +227,20 @@ export const assignedComplaints = async (
   res: Response,
 ): Promise<void> => {
   try {
-    // Return all complaints for faculty view so every faculty sees the same list
+    const facultyId = req.user!.id;
+
+    // Show complaints assigned to this faculty currently or at any point in assignment history.
     const complaints = await prisma.complaint.findMany({
-      where: {},
+      where: {
+        OR: [
+          { assignedToId: facultyId },
+          {
+            assignmentHistory: {
+              array_contains: [{ fromAssigneeId: facultyId }],
+            },
+          },
+        ],
+      },
       include: {
         raisedBy: {
           select: {

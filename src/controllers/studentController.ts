@@ -472,9 +472,9 @@ export const getComplaints = async (
   res: Response,
 ): Promise<void> => {
   try {
-    // Return all complaints for student view so every student sees the same list
+    // Return only the current student's complaints for My Complaints view
     const complaints = await prisma.complaint.findMany({
-      where: {},
+      where: { raisedById: req.user!.id },
       select: {
         id: true,
         title: true,
