@@ -9,17 +9,11 @@ import { withRetry } from "../utils/retry.js";
 // 1. Register (Student / Faculty / Admin)
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, email, password, role, userID, university } = req.body;
+    const { name, email, password, role, userID } = req.body;
 
     // Validate required fields
-    if (!name || !email || !password || !role || !userID || !university) {
+    if (!name || !email || !password || !role || !userID) {
       res.status(400).json({ error: "All fields are required" });
-      return;
-    }
-
-    const normalizedUniversity = String(university).trim();
-    if (!normalizedUniversity) {
-      res.status(400).json({ error: "University is required" });
       return;
     }
 
@@ -59,7 +53,6 @@ export const register = async (req: Request, res: Response): Promise<void> => {
           email,
           password: hashedPassword,
           userID,
-          university: normalizedUniversity,
           role: role as Role,
           approvalStatus: ApprovalStatus.PENDING,
           isActive: false,

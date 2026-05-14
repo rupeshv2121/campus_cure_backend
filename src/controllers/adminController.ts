@@ -172,7 +172,6 @@ export const getPendingStudents = async (
       where: {
         role: Role.STUDENT,
         approvalStatus: ApprovalStatus.PENDING,
-        university: req.user!.university,
       },
       include: {
         studentProfile: true,
@@ -199,7 +198,6 @@ export const getPendingFaculty = async (
       where: {
         role: Role.FACULTY,
         approvalStatus: ApprovalStatus.PENDING,
-        university: req.user!.university,
       },
       include: {
         facultyProfile: true,
@@ -961,13 +959,8 @@ export const getAllUsers = async (
   try {
     const whereClause =
       req.user!.role === Role.ADMIN
-        ? {
-            university: req.user!.university,
-            role: { not: Role.SUPER_ADMIN },
-          }
-        : {
-            university: req.user!.university,
-          };
+        ? { role: { not: Role.SUPER_ADMIN } }
+        : {};
 
     const users = await prisma.user.findMany({
       where: whereClause,

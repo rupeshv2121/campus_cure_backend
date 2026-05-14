@@ -813,24 +813,36 @@ export const getDoubts = async (
   try {
     const { status, subject, semester, search, myAnswered, limit } = req.query;
 
-    const where: any = {};
+    const where: Prisma.DoubtWhereInput = {};
 
-    if (status) {
-      where.status = status;
+    const doubtStatuses: DoubtStatus[] = [
+      DoubtStatus.OPEN,
+      DoubtStatus.ANSWERED,
+      DoubtStatus.RESOLVED,
+    ];
+    if (
+      status &&
+      doubtStatuses.includes(String(status).trim() as DoubtStatus)
+    ) {
+      where.status = String(status).trim() as DoubtStatus;
     }
 
-    if (subject) {
-      where.subject = subject;
+    if (subject && String(subject).trim()) {
+      where.subject = String(subject).trim();
     }
 
-    if (semester) {
-      where.semester = parseInt(semester as string);
+    if (semester !== undefined && semester !== null && String(semester).trim() !== "") {
+      const sem = parseInt(String(semester), 10);
+      if (Number.isFinite(sem)) {
+        where.semester = sem;
+      }
     }
 
-    if (search) {
+    if (search && String(search).trim()) {
+      const q = String(search).trim();
       where.OR = [
-        { title: { contains: search as string, mode: "insensitive" } },
-        { description: { contains: search as string, mode: "insensitive" } },
+        { title: { contains: q, mode: "insensitive" } },
+        { description: { contains: q, mode: "insensitive" } },
       ];
     }
 
@@ -838,10 +850,8 @@ export const getDoubts = async (
       where.answers = { some: { answeredById: req.user!.id } };
     }
 
-    where.postedBy = { university: req.user!.university };
-
-    const findOptions: any = {
-      where,
+    const findOptions: Prisma.DoubtFindManyArgs = {
+      ...(Object.keys(where).length > 0 ? { where } : {}),
       include: {
         postedBy: {
           select: {
@@ -919,7 +929,6 @@ export const getDoubtById = async (
     const doubt = await prisma.doubt.findFirst({
       where: {
         id,
-        postedBy: { university: req.user!.university },
       },
       include: {
         postedBy: {
@@ -1022,16 +1031,9 @@ export const upvoteDoubt = async (
 
     const doubt = await prisma.doubt.findUnique({
       where: { id: doubtId },
-      include: {
-        postedBy: {
-          select: {
-            university: true,
-          },
-        },
-      },
     });
 
-    if (!doubt || doubt.postedBy.university !== req.user!.university) {
+    if (!doubt) {
       res.status(404).json({ error: "Doubt not found" });
       return;
     }
