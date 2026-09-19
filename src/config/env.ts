@@ -56,3 +56,54 @@ export const FRONTEND_URL = process.env.FRONTEND_URL?.trim() || undefined;
 
 export const NODE_ENV = process.env.NODE_ENV?.trim() || "development";
 export const IS_PRODUCTION = NODE_ENV === "production";
+
+/* ------------------------------------------------------------------ *
+ * AI configuration (CC-10)
+ *
+ * Deliberately NOT required: the application must start and serve every
+ * core action with no AI credentials at all. Embedding is an enhancement,
+ * never a dependency — see docs/adr/0001-ai-provider-strategy.md.
+ * ------------------------------------------------------------------ */
+
+export const HF_API_TOKEN = process.env.HF_API_TOKEN?.trim() || undefined;
+
+/**
+ * The canonical embedding model. Changing this invalidates every stored
+ * vector and requires a full backfill: vectors from different models are not
+ * comparable. The repository refuses to write a vector tagged with a
+ * different model, so a change fails loudly instead of silently corrupting
+ * the index.
+ */
+export const HF_EMBEDDING_MODEL =
+  process.env.HF_EMBEDDING_MODEL?.trim() ||
+  "sentence-transformers/all-MiniLM-L6-v2";
+
+export const EMBEDDING_DIMENSIONS = Number(
+  process.env.EMBEDDING_DIMENSIONS ?? 384,
+);
+
+/** Measured at ~7ms/item at this size; per-item calls are ~572ms. */
+export const EMBEDDING_BATCH_SIZE = Number(
+  process.env.EMBEDDING_BATCH_SIZE ?? 50,
+);
+
+/**
+ * Master switch. Defaults to on when a token is present and off otherwise, so
+ * tests and token-less checkouts work with no configuration, while an explicit
+ * `AI_ENABLED=false` always wins.
+ */
+export const AI_ENABLED =
+  process.env.AI_ENABLED?.trim().toLowerCase() === "false"
+    ? false
+    : Boolean(HF_API_TOKEN);
+
+/** Shared secret for internal endpoints (the embedding drain). */
+export const INTERNAL_API_SECRET =
+  process.env.INTERNAL_API_SECRET?.trim() || undefined;
+
+/** Set by Vercel Cron, which sends it as `Authorization: Bearer <secret>`. */
+export const CRON_SECRET = process.env.CRON_SECRET?.trim() || undefined;
+
+if (!Number.isInteger(EMBEDDING_DIMENSIONS) || EMBEDDING_DIMENSIONS <= 0) {
+  fatal(`EMBEDDING_DIMENSIONS must be a positive integer.`);
+}

@@ -90,24 +90,33 @@ model AdminProfile {
 }
 
 model Doubt {
-  id               String      @id @default(uuid())
+  id               String                      @id @default(uuid())
   title            String
   description      String
   semester         Int
   subject          String
   labels           String[]
   postedById       String
-  status           DoubtStatus @default(OPEN)
-  views            Int         @default(0)
-  upVoteCount      Int         @default(0)
-  answerCount      Int         @default(0)
+  status           DoubtStatus                 @default(OPEN)
+  views            Int                         @default(0)
+  upVoteCount      Int                         @default(0)
+  answerCount      Int                         @default(0)
   acceptedAnswerId String?
-  edited           Boolean     @default(false)
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
-  editHistory      Json        @default("[]")
+  edited           Boolean                     @default(false)
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+  editHistory      Json                        @default("[]")
+  /// CC-10. Prisma has no native vector type, so this is invisible to the typed
+  /// client: all reads and writes go through src/repositories/embeddingRepository.ts.
+  /// NEVER select this implicitly - it is ~1.5KB per row.
+  embedding        Unsupported("vector(384)")?
+  /// The model that produced `embedding`. Vectors from different models are not
+  /// comparable, so a model change is a detectable backfill, not silent corruption.
+  embeddingModel   String?
+  embeddingVersion Int                         @default(1)
+  embeddedAt       DateTime?
   answers          Answer[]
-  postedBy         User        @relation(fields: [postedById], references: [id])
+  postedBy         User                        @relation(fields: [postedById], references: [id])
   doubtViews       DoubtView[]
   doubtUpvotes     DoubtUpvote[]
 }
@@ -202,6 +211,24 @@ model Complaint {
   updatedAt               DateTime        @updatedAt
   assignedTo              User?           @relation("AssignedComplaints", fields: [assignedToId], references: [id])
   raisedBy                User            @relation("RaisedComplaints", fields: [raisedById], references: [id])
+}
+
+/// CC-10: work queue for asynchronous embedding.
+///
+/// Embedding never happens inline: HuggingFace cold starts take 20+ seconds and
+/// an AI outage must never stop a student posting a doubt.
+model EmbeddingJob {
+  id         String   @id @default(uuid())
+  entityType String
+  entityId   String
+  status     String   @default("PENDING")
+  attempts   Int      @default(0)
+  lastError  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([entityType, entityId])
+  @@index([status, createdAt])
 }
 
 enum Role {
