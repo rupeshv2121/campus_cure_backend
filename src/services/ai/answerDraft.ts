@@ -12,9 +12,13 @@
  *
  * See docs/specs/CC-12-ai-answer-draft.md.
  */
-import { AI_ENABLED, DRAFT_DELAY_HOURS } from "../../config/env.js";
+import {
+  AI_ENABLED,
+  DRAFT_DELAY_HOURS,
+  GROUNDING_SIMILARITY_THRESHOLD,
+} from "../../config/env.js";
 import { prisma } from "../../config/database.js";
-import { hybridSearchDoubts } from "../search/hybridSearch.js";
+import { findSimilarDoubtsToDoubt } from "../../repositories/embeddingRepository.js";
 import { completeWithFallback } from "./chat/index.js";
 
 /** Approved answers pulled in as grounding. */
@@ -90,16 +94,19 @@ const gatherGrounding = async (doubt: {
   description: string;
   subject: string;
 }): Promise<GroundingSource[]> => {
-  const { doubts } = await hybridSearchDoubts(
-    `${doubt.title} ${doubt.description}`,
-    { subject: doubt.subject, excludeId: doubt.id, limit: MAX_SOURCES + 2 },
-  );
+  // A relevance FLOOR, not just a ranking. Uses the doubt's stored embedding,
+  // so this costs no provider call.
+  const similar = await findSimilarDoubtsToDoubt(doubt.id, {
+    subject: doubt.subject,
+    limit: MAX_SOURCES + 2,
+    maxDistance: 1 - GROUNDING_SIMILARITY_THRESHOLD,
+  });
 
-  if (doubts.length === 0) return [];
+  if (similar.length === 0) return [];
 
   const answers = await prisma.answer.findMany({
     where: {
-      doubtId: { in: doubts.map((d) => d.id) },
+      doubtId: { in: similar.map((d) => d.id) },
       approvalStatus: "APPROVED",
     },
     select: {

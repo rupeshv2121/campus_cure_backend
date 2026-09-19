@@ -240,6 +240,39 @@ export const findDuplicateComplaintPairs = async (
   }));
 };
 
+/**
+ * Doubts similar to a given doubt, using its ALREADY-STORED embedding.
+ *
+ * Costs no provider call, unlike embedding the text again, and applies a
+ * distance ceiling — which is what CC-12 needs. Search can rank loosely related
+ * results and let the user judge; grounding cannot, because irrelevant
+ * grounding produces a draft that says "the reference material does not cover
+ * this", wasting a reviewer's time.
+ */
+export const findSimilarDoubtsToDoubt = async (
+  doubtId: string,
+  options: { limit?: number; maxDistance?: number; subject?: string | undefined } = {},
+): Promise<SimilarDoubt[]> => {
+  const limit = Math.min(Math.max(options.limit ?? 5, 1), 50);
+  const maxDistance = options.maxDistance ?? 1;
+
+  const rows = await prisma.$queryRaw<Array<{ id: string; distance: number }>>`
+    SELECT b."id",
+           a."embedding" <=> b."embedding" AS distance
+      FROM "Doubt" a
+      JOIN "Doubt" b ON b."id" <> a."id"
+     WHERE a."id" = ${doubtId}
+       AND a."embedding" IS NOT NULL
+       AND b."embedding" IS NOT NULL
+       AND (${options.subject ?? null}::text IS NULL OR b."subject" = ${options.subject ?? null})
+       AND (a."embedding" <=> b."embedding") <= ${maxDistance}
+     ORDER BY distance
+     LIMIT ${limit}
+  `;
+
+  return rows.map((row) => ({ id: row.id, distance: Number(row.distance) }));
+};
+
 /* ------------------------------------------------------------------ *
  * Job queue
  * ------------------------------------------------------------------ */

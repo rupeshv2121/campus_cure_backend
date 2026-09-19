@@ -136,6 +136,19 @@ export const DRAFT_DELAY_HOURS = Number(
   process.env.DRAFT_DELAY_HOURS ?? 24,
 );
 
+/**
+ * Minimum cosine similarity for a doubt to be usable as grounding (CC-12).
+ *
+ * Search can afford loosely related results — the reader judges. Grounding
+ * cannot: feeding an answer about SQL JOINs to a question about clustered
+ * indexes produces a draft that says "the reference material does not cover
+ * this", which wastes the reviewer's time and makes the feature look broken.
+ * Observed in seeded data before this floor existed.
+ */
+export const GROUNDING_SIMILARITY_THRESHOLD = Number(
+  process.env.GROUNDING_SIMILARITY_THRESHOLD ?? 0.45,
+);
+
 /** Set by Vercel Cron, which sends it as `Authorization: Bearer <secret>`. */
 export const CRON_SECRET = process.env.CRON_SECRET?.trim() || undefined;
 

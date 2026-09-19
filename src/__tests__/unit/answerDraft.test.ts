@@ -7,7 +7,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const chat = vi.hoisted(() => ({ completeWithFallback: vi.fn() }));
-const search = vi.hoisted(() => ({ hybridSearchDoubts: vi.fn() }));
+const repo = vi.hoisted(() => ({ findSimilarDoubtsToDoubt: vi.fn() }));
 const db = vi.hoisted(() => ({
   prisma: {
     doubt: { findMany: vi.fn() },
@@ -17,11 +17,12 @@ const db = vi.hoisted(() => ({
 }));
 
 vi.mock("../../services/ai/chat/index.js", () => chat);
-vi.mock("../../services/search/hybridSearch.js", () => search);
+vi.mock("../../repositories/embeddingRepository.js", () => repo);
 vi.mock("../../config/database.js", () => db);
 vi.mock("../../config/env.js", () => ({
   AI_ENABLED: true,
   DRAFT_DELAY_HOURS: 24,
+  GROUNDING_SIMILARITY_THRESHOLD: 0.45,
 }));
 
 import {
@@ -46,11 +47,10 @@ const groundingAnswer = (id: string) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  search.hybridSearchDoubts.mockResolvedValue({
-    doubts: [{ id: "d2" }, { id: "d3" }],
-    used: ["vector"],
-    degraded: false,
-  });
+  repo.findSimilarDoubtsToDoubt.mockResolvedValue([
+    { id: "d2", distance: 0.3 },
+    { id: "d3", distance: 0.4 },
+  ]);
   db.prisma.answer.findMany.mockResolvedValue([groundingAnswer("a1")]);
   chat.completeWithFallback.mockResolvedValue({
     content: "Collisions are handled by chaining or open addressing.",
@@ -87,13 +87,28 @@ describe("generateDraftForDoubt", () => {
     );
   });
 
-  it("excludes the doubt itself from its own grounding", async () => {
+  it("looks for grounding similar to this doubt, within its subject", async () => {
     await generateDraftForDoubt(doubt);
 
-    expect(search.hybridSearchDoubts).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ excludeId: "d1" }),
+    expect(repo.findSimilarDoubtsToDoubt).toHaveBeenCalledWith(
+      "d1",
+      expect.objectContaining({ subject: "DSA" }),
     );
+  });
+
+  /**
+   * Regression for a real failure seen on seeded data: a doubt about clustered
+   * indexes was grounded on an answer about SQL JOINs — same subject, unrelated
+   * topic — and the model produced a draft saying the references did not cover
+   * the question. That wastes a reviewer's time, so grounding needs a floor,
+   * not just a ranking.
+   */
+  it("applies a relevance floor, not just a ranking", async () => {
+    await generateDraftForDoubt(doubt);
+
+    const options = repo.findSimilarDoubtsToDoubt.mock.calls[0]![1];
+    // 0.45 similarity == 0.55 cosine distance.
+    expect(options.maxDistance).toBeCloseTo(0.55, 10);
   });
 
   /**
@@ -101,12 +116,8 @@ describe("generateDraftForDoubt", () => {
    * free-generates when it finds no grounding is just free generation.
    */
   describe("no grounding means no draft", () => {
-    it("does not generate when retrieval returns nothing", async () => {
-      search.hybridSearchDoubts.mockResolvedValue({
-        doubts: [],
-        used: [],
-        degraded: false,
-      });
+    it("does not generate when nothing clears the relevance floor", async () => {
+      repo.findSimilarDoubtsToDoubt.mockResolvedValue([]);
 
       const result = await generateDraftForDoubt(doubt);
 
@@ -151,7 +162,7 @@ describe("generateDraftForDoubt", () => {
   });
 
   it("never throws, whatever fails underneath", async () => {
-    search.hybridSearchDoubts.mockRejectedValue(new Error("db down"));
+    repo.findSimilarDoubtsToDoubt.mockRejectedValue(new Error("db down"));
 
     await expect(generateDraftForDoubt(doubt)).resolves.toMatchObject({
       created: false,
@@ -183,9 +194,9 @@ describe("runDraftGeneration", () => {
       doubt,
       { ...doubt, id: "d9", title: "Unrelated" },
     ]);
-    search.hybridSearchDoubts
-      .mockResolvedValueOnce({ doubts: [{ id: "d2" }], used: [], degraded: false })
-      .mockResolvedValueOnce({ doubts: [], used: [], degraded: false });
+    repo.findSimilarDoubtsToDoubt
+      .mockResolvedValueOnce([{ id: "d2", distance: 0.3 }])
+      .mockResolvedValueOnce([]);
 
     const result = await runDraftGeneration(5);
 
