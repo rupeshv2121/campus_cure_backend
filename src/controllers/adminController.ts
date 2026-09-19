@@ -1,6 +1,7 @@
 import { AdminLevel, ApprovalStatus, Prisma, Role } from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
+import { getDuplicateClusters } from "../services/search/duplicateClusters.js";
 import type { AuthRequest } from "../types/index.js";
 import {
   appendComplaintAssignmentHistory,
@@ -1851,6 +1852,31 @@ export const markComplaintAsHandled = async (
     res.json({ message: "Complaint marked as handled by Super Admin" });
   } catch (error) {
     console.error("Mark complaint as handled error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+
+/**
+ * CC-13: open complaints grouped into likely-duplicate clusters.
+ *
+ * Read-only by design. Nothing here merges, closes or alters a complaint —
+ * merging would destroy the reporter list and is unrecoverable. The admin sees
+ * the group and decides.
+ */
+export const getComplaintDuplicateClusters = async (
+  _req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const clusters = await getDuplicateClusters();
+    res.json({
+      clusters,
+      totalClusters: clusters.length,
+      totalComplaints: clusters.reduce((sum, c) => sum + c.size, 0),
+    });
+  } catch (error) {
+    console.error("Error building duplicate clusters:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

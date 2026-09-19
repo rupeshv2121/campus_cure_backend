@@ -6,6 +6,7 @@ import {
   createAdminProfile,
   getAdminProfile,
   getAllComplaints,
+  getComplaintDuplicateClusters,
   getAllFacultyDebug,
   getAllUsers,
   getAnalytics,
@@ -30,6 +31,14 @@ import {
 import { authenticate, authorize } from "../middleware/auth.js";
 
 const router = Router();
+
+// CC-13: likely-duplicate clusters among open complaints. Read-only.
+router.get(
+  "/complaints/duplicates",
+  authenticate,
+  authorize(Role.ADMIN, Role.SUPER_ADMIN),
+  getComplaintDuplicateClusters,
+);
 
 // 1. Get Pending Students (Admin)
 router.get(
@@ -144,6 +153,7 @@ router.get(
   authenticate,
   authorize(Role.ADMIN, Role.SUPER_ADMIN),
   getAllComplaints,
+  getComplaintDuplicateClusters,
 );
 
 // 16. Get Approved Faculty (Admin)
