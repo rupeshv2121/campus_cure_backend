@@ -1,6 +1,10 @@
 import { ApprovalStatus, DoubtStatus, Prisma, Role } from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
+import {
+  requestEmbedding,
+  triggerDrainInBackground,
+} from "../services/ai/embeddingWorker.js";
 import type { AuthRequest, RejectionHistoryEntry } from "../types/index.js";
 import {
   createNotification,
@@ -699,8 +703,6 @@ export const postDoubt = async (
       return;
     }
 
-    console.log("Posting doubt with data:");
-
     // Create doubt and update student profile in a transaction
     const [doubt] = await prisma.$transaction([
       prisma.doubt.create({
@@ -735,6 +737,12 @@ export const postDoubt = async (
         },
       }),
     ]);
+
+    // CC-10: queue the doubt for embedding, then return immediately.
+    // Never inline: a provider cold start is 20+ seconds, and an AI outage must
+    // never stop a student posting a doubt. requestEmbedding does not throw.
+    await requestEmbedding("doubt", doubt.id);
+    triggerDrainInBackground();
 
     res.status(201).json({ message: "Doubt posted successfully", doubt });
   } catch (error) {

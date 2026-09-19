@@ -9,7 +9,9 @@
   "routes": [
     {
       "src": "/(.*)",
-      "methods": ["OPTIONS"],
+      "methods": [
+        "OPTIONS"
+      ],
       "headers": {
         "Access-Control-Allow-Origin": "https://campus-cure-frontend.vercel.app",
         "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
@@ -21,6 +23,12 @@
     {
       "src": "/(.*)",
       "dest": "api/index.ts"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/internal/embeddings/drain",
+      "schedule": "0 2 * * *"
     }
   ]
 }
