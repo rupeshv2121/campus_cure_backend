@@ -72,6 +72,22 @@ export const writeDoubtEmbedding = async (
   `;
 };
 
+export const writeComplaintEmbedding = async (
+  complaintId: string,
+  vector: number[],
+  model: string,
+): Promise<void> => {
+  assertWritable(vector, model);
+
+  await prisma.$executeRaw`
+    UPDATE "Complaint"
+       SET "embedding"      = ${toVectorLiteral(vector)}::vector,
+           "embeddingModel" = ${model},
+           "embeddedAt"     = NOW()
+     WHERE "id" = ${complaintId}
+  `;
+};
+
 /* ------------------------------------------------------------------ *
  * Similarity search
  * ------------------------------------------------------------------ */
@@ -114,6 +130,70 @@ export const findSimilarDoubts = async (
 
   // The driver may hand back Decimal/string for a float8 depending on adapter.
   return rows.map((row) => ({ id: row.id, distance: Number(row.distance) }));
+};
+
+export interface SimilarComplaint {
+  id: string;
+  distance: number;
+  title: string;
+  status: string;
+  createdAt: Date;
+}
+
+/**
+ * Candidate duplicate complaints — CC-13.
+ *
+ * Location is an exact filter rather than part of the similarity score,
+ * because a fault is physical: "fan not working" in ML02 and the same words in
+ * NL28 are two different faults, and text similarity alone cannot tell them
+ * apart. Resolved complaints are excluded — if the fault recurred, that is a
+ * new problem, not a duplicate.
+ */
+export const findSimilarComplaints = async (
+  vector: number[],
+  options: {
+    block: string;
+    classroomNumber: string;
+    limit?: number;
+    maxDistance?: number;
+    excludeId?: string | undefined;
+  },
+): Promise<SimilarComplaint[]> => {
+  if (vector.length !== EMBEDDING_DIMENSIONS) {
+    throw new Error(
+      `Query vector has ${vector.length} dimensions, expected ${EMBEDDING_DIMENSIONS}.`,
+    );
+  }
+
+  const limit = Math.min(Math.max(options.limit ?? 3, 1), 20);
+  const maxDistance = options.maxDistance ?? 1;
+
+  const rows = await prisma.$queryRaw<
+    Array<{
+      id: string;
+      distance: number;
+      title: string;
+      status: string;
+      createdAt: Date;
+    }>
+  >`
+    SELECT "id",
+           "embedding" <=> ${toVectorLiteral(vector)}::vector AS distance,
+           "title",
+           "status"::text AS status,
+           "createdAt"
+      FROM "Complaint"
+     WHERE "embedding" IS NOT NULL
+       AND "block" = ${options.block}
+       AND "classroomNumber" = ${options.classroomNumber}
+       AND "status" <> 'RESOLVED'
+       AND (${options.excludeId ?? null}::text IS NULL OR "id" <> ${options.excludeId ?? null})
+       AND ("embedding" <=> ${toVectorLiteral(vector)}::vector) <= ${maxDistance}
+     ORDER BY distance
+     LIMIT ${limit}
+  `;
+
+  return rows.map((row) => ({ ...row, distance: Number(row.distance) }));
 };
 
 /* ------------------------------------------------------------------ *
@@ -242,6 +322,35 @@ export const getDoubtTexts = async (ids: string[]): Promise<DoubtText[]> => {
 export const buildEmbeddingText = (doubt: DoubtText): string =>
   `${doubt.title}\n${doubt.description}`.slice(0, 2000);
 
+export interface ComplaintText {
+  id: string;
+  title: string;
+  description: string;
+}
+
+export const getComplaintTexts = async (
+  ids: string[],
+): Promise<ComplaintText[]> => {
+  if (ids.length === 0) return [];
+  return prisma.complaint.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, title: true, description: true },
+  });
+};
+
+/** Complaint ids with no embedding yet. */
+export const findUnembeddedComplaintIds = async (
+  limit: number,
+): Promise<string[]> => {
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "Complaint"
+     WHERE "embedding" IS NULL
+     ORDER BY "createdAt" DESC
+     LIMIT ${limit}
+  `;
+  return rows.map((row) => row.id);
+};
+
 /** Doubt ids with no embedding yet — drives the backfill. */
 export const findUnembeddedDoubtIds = async (
   limit: number,
@@ -259,14 +368,21 @@ export const findUnembeddedDoubtIds = async (
 export const getEmbeddingStats = async (): Promise<{
   totalDoubts: number;
   embedded: number;
+  totalComplaints: number;
+  complaintsEmbedded: number;
   pending: number;
   failed: number;
 }> => {
-  const [doubts, jobs] = await Promise.all([
+  const [doubts, complaints, jobs] = await Promise.all([
     prisma.$queryRaw<Array<{ total: bigint; embedded: bigint }>>`
       SELECT count(*) AS total,
              count("embedding") AS embedded
         FROM "Doubt"
+    `,
+    prisma.$queryRaw<Array<{ total: bigint; embedded: bigint }>>`
+      SELECT count(*) AS total,
+             count("embedding") AS embedded
+        FROM "Complaint"
     `,
     prisma.$queryRaw<Array<{ status: string; n: bigint }>>`
       SELECT "status", count(*) AS n FROM "EmbeddingJob" GROUP BY "status"
@@ -278,6 +394,8 @@ export const getEmbeddingStats = async (): Promise<{
   return {
     totalDoubts: Number(doubts[0]?.total ?? 0),
     embedded: Number(doubts[0]?.embedded ?? 0),
+    totalComplaints: Number(complaints[0]?.total ?? 0),
+    complaintsEmbedded: Number(complaints[0]?.embedded ?? 0),
     pending: byStatus.get("PENDING") ?? 0,
     failed: byStatus.get("FAILED") ?? 0,
   };

@@ -11,7 +11,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const repo = vi.hoisted(() => ({
   claimPendingJobs: vi.fn(),
   getDoubtTexts: vi.fn(),
+  getComplaintTexts: vi.fn(),
   writeDoubtEmbedding: vi.fn(),
+  writeComplaintEmbedding: vi.fn(),
   markJobsDone: vi.fn(),
   markJobsFailed: vi.fn(),
   enqueueEmbedding: vi.fn(),
@@ -53,6 +55,7 @@ const doubt = (id: string) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  repo.getComplaintTexts.mockResolvedValue([]);
   providerRef.current = {
     model: "sentence-transformers/all-MiniLM-L6-v2",
     dimensions: 384,
@@ -163,9 +166,10 @@ describe("runEmbeddingDrain", () => {
     expect(result).toMatchObject({ embedded: 1, failed: 1 });
   });
 
-  it("parks jobs for entity types this spec does not handle", async () => {
+  it("parks jobs for entity types that are not wired up yet", async () => {
+    // Answers are CC-12. Complaints became supported in CC-13.
     repo.claimPendingJobs.mockResolvedValue([
-      { id: "j1", entityType: "complaint", entityId: "c1", attempts: 0 },
+      { id: "j1", entityType: "answer", entityId: "a1", attempts: 0 },
     ]);
 
     const result = await runEmbeddingDrain();
@@ -175,6 +179,43 @@ describe("runEmbeddingDrain", () => {
       "Unsupported entity type for CC-10",
     );
     expect(result.failed).toBe(1);
+  });
+
+  it("embeds a complaint through the same pipeline as a doubt", async () => {
+    repo.claimPendingJobs.mockResolvedValue([
+      { id: "j1", entityType: "complaint", entityId: "c1", attempts: 0 },
+    ]);
+    repo.getComplaintTexts.mockResolvedValue([
+      { id: "c1", title: "Fan broken", description: "ML02 fan not spinning" },
+    ]);
+
+    const result = await runEmbeddingDrain();
+
+    expect(repo.writeComplaintEmbedding).toHaveBeenCalledWith(
+      "c1",
+      [0.1, 0.2],
+      "sentence-transformers/all-MiniLM-L6-v2",
+    );
+    expect(repo.writeDoubtEmbedding).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ embedded: 1, failed: 0 });
+  });
+
+  it("handles a batch mixing doubts and complaints in one provider call", async () => {
+    repo.claimPendingJobs.mockResolvedValue([
+      job("j1", "d1"),
+      { id: "j2", entityType: "complaint", entityId: "c1", attempts: 0 },
+    ]);
+    repo.getDoubtTexts.mockResolvedValue([doubt("d1")]);
+    repo.getComplaintTexts.mockResolvedValue([
+      { id: "c1", title: "Fan broken", description: "ML02" },
+    ]);
+
+    const result = await runEmbeddingDrain();
+
+    expect(providerRef.current!.embed).toHaveBeenCalledTimes(1);
+    expect(repo.writeDoubtEmbedding).toHaveBeenCalledTimes(1);
+    expect(repo.writeComplaintEmbedding).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ embedded: 2, failed: 0 });
   });
 
   it("marks a job failed when persistence fails, without losing the others", async () => {

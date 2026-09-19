@@ -19,6 +19,7 @@ import {
   getSubjectWiseDoubtsAnalytics,
   markAnswerAsAccepted,
   postAnswer,
+  getSimilarComplaints,
   postDoubt,
   raiseComplaint,
   rejectComplaintResolution,
@@ -60,6 +61,16 @@ router.post(
 
 // 9. Get All Complaints for student
 router.get("/complaints", authenticate, authorize(Role.STUDENT), getComplaints);
+
+// CC-13: pre-submit duplicate check. Advisory only - never blocks filing.
+// Registered before any /complaints/:param route so "similar" is not captured
+// as a complaint id.
+router.get(
+  "/complaints/similar",
+  authenticate,
+  authorize(Role.STUDENT),
+  getSimilarComplaints,
+);
 
 // ========== DOUBTS ==========
 

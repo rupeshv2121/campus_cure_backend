@@ -183,34 +183,40 @@ model DoubtUpvote {
 }
 
 model Complaint {
-  id                      String          @id @default(uuid())
+  id                      String                      @id @default(uuid())
   title                   String
   description             String
   category                String
   classroomNumber         String
   block                   String
-  status                  ComplaintStatus @default(RAISED)
+  status                  ComplaintStatus             @default(RAISED)
   priority                Int
   raisedById              String
   assignedToId            String?
   resolutionNote          String?
   resolutionDate          DateTime?
-  studentConfirmed        Boolean         @default(false)
+  studentConfirmed        Boolean                     @default(false)
   studentConfirmationDate DateTime?
   feedbackRating          Int?
   feedbackComment         String?
   studentRejectionMessage String?
-  escalationCount         Int             @default(0)
-  handledBySuperAdmin     Boolean         @default(false)
+  escalationCount         Int                         @default(0)
+  handledBySuperAdmin     Boolean                     @default(false)
   superAdminId            String?
-  rejectionHistory        Json            @default("[]")
-  assignmentHistory       Json            @default("[]")
+  rejectionHistory        Json                        @default("[]")
+  assignmentHistory       Json                        @default("[]")
   assignedAt              DateTime?
   pendingConfirmationAt   DateTime?
-  createdAt               DateTime        @default(now())
-  updatedAt               DateTime        @updatedAt
-  assignedTo              User?           @relation("AssignedComplaints", fields: [assignedToId], references: [id])
-  raisedBy                User            @relation("RaisedComplaints", fields: [raisedById], references: [id])
+  createdAt               DateTime                    @default(now())
+  updatedAt               DateTime                    @updatedAt
+  /// CC-13. Same contract as Doubt.embedding: invisible to the typed client,
+  /// written only through embeddingRepository, never selected implicitly.
+  embedding               Unsupported("vector(384)")?
+  embeddingModel          String?
+  embeddingVersion        Int                         @default(1)
+  embeddedAt              DateTime?
+  assignedTo              User?                       @relation("AssignedComplaints", fields: [assignedToId], references: [id])
+  raisedBy                User                        @relation("RaisedComplaints", fields: [raisedById], references: [id])
 }
 
 /// CC-10: work queue for asynchronous embedding.
