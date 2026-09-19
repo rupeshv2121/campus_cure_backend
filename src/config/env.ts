@@ -116,6 +116,26 @@ export const DUPLICATE_SIMILARITY_THRESHOLD = Number(
   process.env.DUPLICATE_SIMILARITY_THRESHOLD ?? 0.52,
 );
 
+/* --- Generation (CC-12, CC-15). Unlike embeddings, these CAN fail over. --- */
+
+export const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim() || undefined;
+export const GROQ_MODEL =
+  process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-120b";
+
+export const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY?.trim() || undefined;
+export const MISTRAL_MODEL =
+  process.env.MISTRAL_MODEL?.trim() || "mistral-small-latest";
+
+/**
+ * Hours a doubt must go unanswered before an AI draft is generated.
+ *
+ * Humans get first refusal. Without this, CC-12 would undercut the community
+ * CC-25 is meant to build: if the AI always answers first, nobody else will.
+ */
+export const DRAFT_DELAY_HOURS = Number(
+  process.env.DRAFT_DELAY_HOURS ?? 24,
+);
+
 /** Set by Vercel Cron, which sends it as `Authorization: Bearer <secret>`. */
 export const CRON_SECRET = process.env.CRON_SECRET?.trim() || undefined;
 

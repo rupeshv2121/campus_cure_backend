@@ -137,6 +137,9 @@ model Answer {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   editHistory    Json           @default("[]")
+  /// CC-12. Permanent: a reader can always tell an answer began as an AI draft,
+  /// even after a faculty member edited and approved it.
+  aiAssisted     Boolean        @default(false)
   answeredBy     User           @relation(fields: [answeredById], references: [id])
   doubt          Doubt          @relation(fields: [doubtId], references: [id])
   moderatedBy    User?          @relation("ModeratedAnswers", fields: [moderatedById], references: [id])
@@ -217,6 +220,32 @@ model Complaint {
   embeddedAt              DateTime?
   assignedTo              User?                       @relation("AssignedComplaints", fields: [assignedToId], references: [id])
   raisedBy                User                        @relation("RaisedComplaints", fields: [raisedById], references: [id])
+}
+
+/// CC-12: an AI-written answer awaiting faculty review.
+///
+/// Drafts live here rather than in Answer so they are structurally incapable of
+/// reaching a student: no student query touches this table. Approval creates a
+/// real Answer authored by the reviewing faculty member.
+model AnswerDraft {
+  id               String    @id @default(uuid())
+  /// One outstanding draft per doubt, which makes generation idempotent.
+  doubtId          String    @unique
+  content          String
+  model            String
+  /// Answer ids used as grounding, so a reviewer can audit the draft.
+  sourceIds        String[]  @default([])
+  status           String    @default("PENDING")
+  reviewedById     String?
+  reviewedAt       DateTime?
+  reviewNote       String?
+  /// False here means the reviewer approved the text verbatim. Recorded so
+  /// rubber-stamping is measurable rather than merely discouraged.
+  editedOnApproval Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status, createdAt])
 }
 
 /// CC-10: work queue for asynchronous embedding.

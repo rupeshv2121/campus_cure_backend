@@ -9,7 +9,11 @@ import {
   getDoubts,
   getFacultyProfile,
   getMyAnswers,
+  approveAnswerDraft,
+  getAnswerDraft,
   moderateAnswer,
+  rejectAnswerDraft,
+  requestAnswerDraft,
   postAnswer,
   updateComplaintStatus,
   updateFacultyProfile,
@@ -36,6 +40,33 @@ router.get("/doubts", authenticate, authorize(Role.FACULTY), getDoubts);
 
 // 12. Get a single doubt by ID
 router.get("/doubts/:id", authenticate, authorize(Role.FACULTY), getDoubtById);
+
+// CC-12: AI answer drafts. Faculty only - no student route reads AnswerDraft,
+// so a draft cannot reach a student before a human approves it.
+router.get(
+  "/doubts/:id/draft",
+  authenticate,
+  authorize(Role.FACULTY),
+  getAnswerDraft,
+);
+router.post(
+  "/doubts/:id/draft/generate",
+  authenticate,
+  authorize(Role.FACULTY),
+  requestAnswerDraft,
+);
+router.post(
+  "/doubts/:id/draft/approve",
+  authenticate,
+  authorize(Role.FACULTY),
+  approveAnswerDraft,
+);
+router.post(
+  "/doubts/:id/draft/reject",
+  authenticate,
+  authorize(Role.FACULTY),
+  rejectAnswerDraft,
+);
 
 // 12a. Upvote a doubt
 router.post(
@@ -84,7 +115,11 @@ router.put(
   "/answers/:answerId/moderate",
   authenticate,
   authorize(Role.FACULTY),
+  approveAnswerDraft,
+  getAnswerDraft,
   moderateAnswer,
+  rejectAnswerDraft,
+  requestAnswerDraft,
 );
 
 // 16. Get faculty's answers
