@@ -1,10 +1,11 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import pg from "pg";
+import { DATABASE_URL, JWT_SECRET as VALIDATED_JWT_SECRET } from "./env.js";
 
 // Configure connection pool with optimized settings for Supabase
 const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: DATABASE_URL,
   max: 5, // Reduced for better connection management
   min: 1, // Keep at least one connection alive
   idleTimeoutMillis: 60000, // Keep connections alive longer
@@ -54,6 +55,6 @@ process.on("SIGTERM", async () => {
   process.exit(0);
 });
 
-// JWT Secret
-export const JWT_SECRET =
-  process.env.JWT_SECRET ?? "your-secret-key-change-in-production";
+// JWT Secret — validated in ./env.ts, which throws if it is missing or weak.
+// Re-exported here so existing importers keep working.
+export const JWT_SECRET = VALIDATED_JWT_SECRET;
