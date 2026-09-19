@@ -1,0 +1,51 @@
+name: Backend CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    env:
+      # Prisma's config reads DATABASE_URL at generate time. Nothing connects to
+      # it — the test suite mocks the Prisma client entirely (Tier 1).
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Typecheck (src + tests)
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # Scoped to shipped dependencies on purpose.
+      #
+      # The four standing high-severity advisories are all in the `prisma` CLI,
+      # a devDependency that never reaches the deployed lambda, and npm's only
+      # "fix" is a major downgrade to Prisma 6 that would break the schema
+      # (see docs/adr/0003-stay-on-prisma-7.md).
+      #
+      # A permanently red build teaches everyone to ignore it, and
+      # `npm audit --omit=dev` does NOT exclude them (verified: still exits 1).
+      # scripts/audit-check.mjs therefore fails only on advisories that are not
+      # on a small, named, reviewable allowlist.
+      - name: Audit dependencies
+        run: npm run audit:check
