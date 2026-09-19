@@ -51,6 +51,13 @@ const ROUTES: RouteCase[] = [
     allow: ["ADMIN", "SUPER_ADMIN"],
   },
   { method: "get", path: "/api/admin/super/stats", allow: ["SUPER_ADMIN"] },
+  // CC-13: AI-backed admin view, so worth asserting explicitly rather than
+  // relying on another route in the same guard group.
+  {
+    method: "get",
+    path: "/api/admin/complaints/duplicates",
+    allow: ["ADMIN", "SUPER_ADMIN"],
+  },
   {
     method: "get",
     path: "/api/notifications/",

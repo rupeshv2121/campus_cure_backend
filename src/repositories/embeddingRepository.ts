@@ -196,6 +196,50 @@ export const findSimilarComplaints = async (
   return rows.map((row) => ({ ...row, distance: Number(row.distance) }));
 };
 
+export interface DuplicatePair {
+  aId: string;
+  bId: string;
+  similarity: number;
+}
+
+/**
+ * All candidate duplicate pairs among open complaints — CC-13 admin view.
+ *
+ * A self-join constrained to the same room, so the comparison is only ever
+ * within a location rather than across the whole table. `a."id" < b."id"`
+ * yields each pair once rather than twice.
+ */
+export const findDuplicateComplaintPairs = async (
+  maxDistance: number,
+  limit = 500,
+): Promise<DuplicatePair[]> => {
+  const rows = await prisma.$queryRaw<
+    Array<{ aId: string; bId: string; distance: number }>
+  >`
+    SELECT a."id" AS "aId",
+           b."id" AS "bId",
+           a."embedding" <=> b."embedding" AS distance
+      FROM "Complaint" a
+      JOIN "Complaint" b
+        ON a."id" < b."id"
+       AND a."block" = b."block"
+       AND a."classroomNumber" = b."classroomNumber"
+     WHERE a."embedding" IS NOT NULL
+       AND b."embedding" IS NOT NULL
+       AND a."status" <> 'RESOLVED'
+       AND b."status" <> 'RESOLVED'
+       AND (a."embedding" <=> b."embedding") <= ${maxDistance}
+     ORDER BY distance
+     LIMIT ${limit}
+  `;
+
+  return rows.map((row) => ({
+    aId: row.aId,
+    bId: row.bId,
+    similarity: Number((1 - Number(row.distance)).toFixed(4)),
+  }));
+};
+
 /* ------------------------------------------------------------------ *
  * Job queue
  * ------------------------------------------------------------------ */
