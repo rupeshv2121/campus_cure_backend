@@ -6,9 +6,28 @@
  * See docs/adr/0001-ai-provider-strategy.md.
  */
 
+export interface ToolCall {
+  id: string;
+  name: string;
+  /** Raw JSON string from the model; may be malformed and must be parsed defensively. */
+  argumentsJson: string;
+}
+
 export interface ChatMessage {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  /** Present on assistant messages that requested tools. */
+  tool_calls?: unknown;
+  /** Required on tool-result messages, to match the call being answered. */
+  tool_call_id?: string;
+}
+
+/** A completion that may be either an answer or a request to call tools. */
+export interface ChatCompletion {
+  content: string;
+  toolCalls: ToolCall[];
+  /** The raw assistant message, replayed verbatim into the next request. */
+  rawMessage: unknown;
 }
 
 export interface ChatProvider {
@@ -27,6 +46,18 @@ export interface ChatProvider {
     messages: ChatMessage[],
     options?: { maxTokens?: number; temperature?: number },
   ): Promise<string>;
+
+  /**
+   * Like `complete`, but may return tool calls instead of an answer.
+   *
+   * Unlike `complete`, empty content is NOT an error here: a model requesting
+   * tools legitimately returns no text alongside the call.
+   */
+  completeWithTools(
+    messages: ChatMessage[],
+    tools: unknown[],
+    options?: { maxTokens?: number; temperature?: number },
+  ): Promise<ChatCompletion>;
 }
 
 export class EmptyCompletionError extends Error {

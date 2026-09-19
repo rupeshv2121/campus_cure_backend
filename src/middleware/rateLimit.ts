@@ -84,6 +84,25 @@ const userIdFromToken = (req: Request): string | undefined => {
 };
 
 /**
+ * AI chat (CC-15). Tighter than the global limit because every message costs a
+ * completion, and tool rounds multiply that. On a free tier one user in a loop
+ * can exhaust the quota for the whole campus.
+ */
+export const chatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => {
+    const userId = userIdFromToken(req);
+    return userId ? `chat:${userId}` : ipKey(req);
+  },
+  message: {
+    error: "You are sending messages too quickly. Please wait a moment.",
+  },
+});
+
+/**
  * Blanket limit for the whole API. Keyed by user id where possible so that many
  * students behind one campus NAT address are metered individually.
  */

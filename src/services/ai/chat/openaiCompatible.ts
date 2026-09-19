@@ -8,8 +8,10 @@
 import {
   ChatProviderError,
   EmptyCompletionError,
+  type ChatCompletion,
   type ChatMessage,
   type ChatProvider,
+  type ToolCall,
 } from "./types.js";
 
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
@@ -72,6 +74,87 @@ export class OpenAICompatibleChatProvider implements ChatProvider {
     }
 
     throw lastError ?? new Error("Chat completion failed");
+  }
+
+  /**
+   * Tool-aware completion.
+   *
+   * Empty content is valid here, unlike `complete`: a model that decides to
+   * call a tool returns `tool_calls` with no text, and treating that as a
+   * failure would break the loop before it started.
+   */
+  async completeWithTools(
+    messages: ChatMessage[],
+    tools: unknown[],
+    options: { maxTokens?: number; temperature?: number } = {},
+  ): Promise<ChatCompletion> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages,
+          tools,
+          tool_choice: "auto",
+          max_tokens: options.maxTokens ?? 1200,
+          temperature: options.temperature ?? 0.2,
+        }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      throw new ChatProviderError(
+        `${this.name} request failed: ${(error as Error).message}`,
+        undefined,
+        true,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new ChatProviderError(
+        `${this.name} returned ${response.status}: ${body.slice(0, 200)}`,
+        response.status,
+        RETRYABLE_STATUSES.has(response.status),
+      );
+    }
+
+    const payload = (await response.json()) as {
+      choices?: Array<{
+        message?: {
+          content?: string | null;
+          tool_calls?: Array<{
+            id?: string;
+            function?: { name?: string; arguments?: string };
+          }>;
+        };
+      }>;
+    };
+
+    const message = payload.choices?.[0]?.message;
+
+    const toolCalls: ToolCall[] = (message?.tool_calls ?? [])
+      .filter((call) => call.function?.name)
+      .map((call) => ({
+        id: call.id ?? "",
+        name: call.function!.name!,
+        argumentsJson: call.function?.arguments ?? "{}",
+      }));
+
+    return {
+      content: message?.content?.trim() ?? "",
+      toolCalls,
+      rawMessage: message ?? { role: "assistant", content: "" },
+    };
   }
 
   private async attempt(
