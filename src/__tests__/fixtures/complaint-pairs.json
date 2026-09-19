@@ -1,0 +1,38 @@
+{
+  "_readme": [
+    "Threshold calibration fixtures for CC-13 duplicate complaint detection.",
+    "",
+    "The production data cannot calibrate this. Measured 2026-09-20 on all 15",
+    "live complaints: same-location pairs reached a maximum similarity of 0.144",
+    "and were not actually duplicates ('Urgent Maintenance' vs 'Board Not",
+    "working properly' are different faults in one room), while the highest",
+    "similarity overall, 0.857, was between two junk placeholder titles in",
+    "different rooms. There are no real duplicates to learn from.",
+    "",
+    "So pairs are labelled here instead. 'duplicate' pairs describe the same",
+    "physical fault in different words; 'distinct' pairs are different faults",
+    "that a naive text match might confuse. The threshold must separate them.",
+    "",
+    "Location is filtered in SQL before similarity is considered, so every pair",
+    "here is assumed to be in the same room."
+  ],
+  "pairs": [
+    { "label": "duplicate", "a": { "title": "Projector not working", "description": "The projector in this room will not turn on at all." }, "b": { "title": "Classroom projector is dead", "description": "Tried switching it on several times, no display comes up." } },
+    { "label": "duplicate", "a": { "title": "Fan not working", "description": "Ceiling fan does not spin even when the switch is on." }, "b": { "title": "Ceiling fan stopped", "description": "The fan has stopped rotating, room is very hot." } },
+    { "label": "duplicate", "a": { "title": "AC not cooling", "description": "Air conditioner runs but blows warm air." }, "b": { "title": "Air conditioning is not cold", "description": "The AC is on but the room never cools down." } },
+    { "label": "duplicate", "a": { "title": "Lights are out", "description": "Tube lights in the room are not glowing." }, "b": { "title": "Room lighting not working", "description": "None of the lights switch on in this classroom." } },
+    { "label": "duplicate", "a": { "title": "Broken chair", "description": "One of the chairs has a cracked backrest and is unsafe." }, "b": { "title": "Damaged seating", "description": "A chair is broken, the back support has come off." } },
+    { "label": "duplicate", "a": { "title": "No internet in lab", "description": "Wifi does not connect on any machine here." }, "b": { "title": "Network is down", "description": "Cannot get an internet connection in this room." } },
+    { "label": "duplicate", "a": { "title": "Smart board unresponsive", "description": "Touch input on the smart board does nothing." }, "b": { "title": "Interactive board not responding to touch", "description": "The board display works but touch is dead." } },
+    { "label": "duplicate", "a": { "title": "Water leaking from ceiling", "description": "There is water dripping near the back wall." }, "b": { "title": "Ceiling leak", "description": "Water is coming through the roof onto the desks." } },
+
+    { "label": "distinct", "a": { "title": "Projector not working", "description": "The projector in this room will not turn on at all." }, "b": { "title": "Fan not working", "description": "Ceiling fan does not spin even when the switch is on." } },
+    { "label": "distinct", "a": { "title": "Lights are out", "description": "Tube lights in the room are not glowing." }, "b": { "title": "AC not cooling", "description": "Air conditioner runs but blows warm air." } },
+    { "label": "distinct", "a": { "title": "Broken chair", "description": "One of the chairs has a cracked backrest and is unsafe." }, "b": { "title": "Broken window", "description": "The window pane is cracked and does not shut." } },
+    { "label": "distinct", "a": { "title": "No internet in lab", "description": "Wifi does not connect on any machine here." }, "b": { "title": "No drinking water", "description": "The water cooler on this floor is empty." } },
+    { "label": "distinct", "a": { "title": "Smart board unresponsive", "description": "Touch input on the smart board does nothing." }, "b": { "title": "Projector not working", "description": "The projector in this room will not turn on at all." } },
+    { "label": "distinct", "a": { "title": "Fan not working", "description": "Ceiling fan does not spin even when the switch is on." }, "b": { "title": "Fan making loud noise", "description": "The fan spins but rattles loudly and is distracting." } },
+    { "label": "distinct", "a": { "title": "Water leaking from ceiling", "description": "There is water dripping near the back wall." }, "b": { "title": "Floor is dirty", "description": "The room has not been swept in several days." } },
+    { "label": "distinct", "a": { "title": "Door lock broken", "description": "The classroom door cannot be locked." }, "b": { "title": "Lights are out", "description": "Tube lights in the room are not glowing." } }
+  ]
+}

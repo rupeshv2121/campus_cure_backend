@@ -2,6 +2,7 @@ import { ApprovalStatus, DoubtStatus, Prisma, Role } from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
 import { hybridSearchDoubts } from "../services/search/hybridSearch.js";
+import { findDuplicateComplaints } from "../services/search/duplicateComplaints.js";
 import {
   requestEmbedding,
   triggerDrainInBackground,
@@ -417,6 +418,11 @@ export const raiseComplaint = async (
       }),
     ]);
 
+    // CC-13: queue for embedding so this complaint can be matched against
+    // future reports. Never inline - an AI outage must not block filing.
+    await requestEmbedding("complaint", complaint.id);
+    triggerDrainInBackground();
+
     res.status(201).json({
       message: "Complaint raised successfully - will be manually assigned",
       complaint,
@@ -424,6 +430,46 @@ export const raiseComplaint = async (
   } catch (error) {
     console.error("Error raising complaint:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * CC-13: pre-submit duplicate check.
+ *
+ * Advisory only. It never blocks filing, and returns an empty list whenever
+ * detection is unavailable - a student must always be able to report a problem.
+ */
+export const getSimilarComplaints = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const str = (value: unknown) =>
+      typeof value === "string" ? value.trim() : "";
+
+    const title = str(req.query.title);
+    const description = str(req.query.description);
+    const block = str(req.query.block);
+    const classroomNumber = str(req.query.classroomNumber);
+
+    if (!block || !classroomNumber || (title + description).length < 5) {
+      res.json({ duplicates: [] });
+      return;
+    }
+
+    const duplicates = await findDuplicateComplaints({
+      title,
+      description,
+      block,
+      classroomNumber,
+      limit: 3,
+    });
+
+    res.json({ duplicates });
+  } catch (error) {
+    console.error("Error checking similar complaints:", error);
+    // Advisory feature: degrade to "none found" rather than failing the page.
+    res.json({ duplicates: [] });
   }
 };
 

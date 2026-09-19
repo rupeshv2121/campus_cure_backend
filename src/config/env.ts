@@ -101,6 +101,21 @@ export const AI_ENABLED =
 export const INTERNAL_API_SECRET =
   process.env.INTERNAL_API_SECRET?.trim() || undefined;
 
+/**
+ * Cosine-similarity floor for calling two complaints duplicates (CC-13).
+ *
+ * Calibrated 2026-09-20 on 16 labelled pairs: the lowest true duplicate scored
+ * 0.538 and the highest distinct pair 0.499 ("Fan not working" vs "Fan making
+ * loud noise" — same object, different fault). 0.52 is the midpoint, which
+ * separates that set perfectly.
+ *
+ * The margin is narrow (0.039) and n is small, which is why this is an env var.
+ * Re-run `npx tsx src/scripts/calibrateDuplicateThreshold.ts` before changing it.
+ */
+export const DUPLICATE_SIMILARITY_THRESHOLD = Number(
+  process.env.DUPLICATE_SIMILARITY_THRESHOLD ?? 0.52,
+);
+
 /** Set by Vercel Cron, which sends it as `Authorization: Bearer <secret>`. */
 export const CRON_SECRET = process.env.CRON_SECRET?.trim() || undefined;
 

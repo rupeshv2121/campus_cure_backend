@@ -13,9 +13,11 @@ import {
   buildEmbeddingText,
   claimPendingJobs,
   enqueueEmbedding,
+  getComplaintTexts,
   getDoubtTexts,
   markJobsDone,
   markJobsFailed,
+  writeComplaintEmbedding,
   writeDoubtEmbedding,
   type EntityType,
   type PendingJob,
@@ -27,6 +29,22 @@ import { getEmbeddingProvider } from "./embeddings/index.js";
  * Used for conditions that can never succeed, such as a deleted entity.
  */
 const MAX_ATTEMPTS_SENTINEL = 999;
+
+/**
+ * Per-entity wiring. Adding an entity to the pipeline means adding a row here,
+ * not writing a second worker — which was the point of specifying CC-10
+ * separately from the features that consume it.
+ */
+const HANDLERS: Record<
+  string,
+  {
+    fetch: (ids: string[]) => Promise<Array<{ id: string; title: string; description: string }>>;
+    write: (id: string, vector: number[], model: string) => Promise<void>;
+  }
+> = {
+  doubt: { fetch: getDoubtTexts, write: writeDoubtEmbedding },
+  complaint: { fetch: getComplaintTexts, write: writeComplaintEmbedding },
+};
 
 export interface DrainResult {
   claimed: number;
@@ -84,25 +102,32 @@ export const runEmbeddingDrain = async (
   const jobs = await claimPendingJobs(batchSize);
   if (jobs.length === 0) return base;
 
-  // Only doubts are wired up today; complaints are CC-13, answers CC-12.
-  const doubtJobs = jobs.filter((job) => job.entityType === "doubt");
-  const unsupported = jobs.filter((job) => job.entityType !== "doubt");
+  // Answers are not wired up yet (CC-12); those jobs are parked, not retried.
+  const supported = jobs.filter((job) => HANDLERS[job.entityType]);
+  const unsupported = jobs.filter((job) => !HANDLERS[job.entityType]);
 
   if (unsupported.length > 0) {
     await markJobsFailed(unsupported, "Unsupported entity type for CC-10");
   }
 
-  if (doubtJobs.length === 0) {
+  if (supported.length === 0) {
     return { ...base, claimed: jobs.length, failed: unsupported.length };
   }
 
-  const texts = await getDoubtTexts(doubtJobs.map((job) => job.entityId));
-  const byId = new Map(texts.map((text) => [text.id, text]));
+  // Fetch per entity type, so one batch can mix doubts and complaints.
+  const byId = new Map<string, { id: string; title: string; description: string }>();
+  for (const [entityType, handler] of Object.entries(HANDLERS)) {
+    const ids = supported
+      .filter((job) => job.entityType === entityType)
+      .map((job) => job.entityId);
+    if (ids.length === 0) continue;
+    for (const row of await handler.fetch(ids)) byId.set(row.id, row);
+  }
 
   // A job whose row has since been deleted can never succeed — park it now
   // rather than retrying it five times.
-  const orphaned = doubtJobs.filter((job) => !byId.has(job.entityId));
-  const live = doubtJobs.filter((job) => byId.has(job.entityId));
+  const orphaned = supported.filter((job) => !byId.has(job.entityId));
+  const live = supported.filter((job) => byId.has(job.entityId));
 
   if (orphaned.length > 0) {
     await markJobsFailed(
@@ -145,7 +170,7 @@ export const runEmbeddingDrain = async (
       continue;
     }
     try {
-      await writeDoubtEmbedding(job.entityId, vector, provider.model);
+      await HANDLERS[job.entityType]!.write(job.entityId, vector, provider.model);
       succeeded.push(job.id);
     } catch (error) {
       console.error(

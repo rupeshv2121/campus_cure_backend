@@ -16,6 +16,7 @@ import { AI_ENABLED, EMBEDDING_BATCH_SIZE } from "../config/env.js";
 import { prisma } from "../config/database.js";
 import {
   enqueueEmbedding,
+  findUnembeddedComplaintIds,
   findUnembeddedDoubtIds,
   getEmbeddingStats,
 } from "../repositories/embeddingRepository.js";
@@ -34,20 +35,24 @@ const main = async () => {
 
   const before = await getEmbeddingStats();
   console.log(
-    `Before: ${before.embedded}/${before.totalDoubts} doubts embedded ` +
+    `Before: doubts ${before.embedded}/${before.totalDoubts}, ` +
+      `complaints ${before.complaintsEmbedded}/${before.totalComplaints} ` +
       `(${before.pending} pending, ${before.failed} failed)`,
   );
 
-  const ids = await findUnembeddedDoubtIds(10_000);
-  if (ids.length === 0) {
-    console.log("Every doubt already has an embedding. Nothing to do.");
+  const doubtIds = await findUnembeddedDoubtIds(10_000);
+  const complaintIds = await findUnembeddedComplaintIds(10_000);
+
+  if (doubtIds.length === 0 && complaintIds.length === 0) {
+    console.log("Every doubt and complaint already has an embedding. Nothing to do.");
     return;
   }
 
-  console.log(`Enqueueing ${ids.length} doubt(s)...`);
-  for (const id of ids) {
-    await enqueueEmbedding("doubt", id);
-  }
+  console.log(
+    `Enqueueing ${doubtIds.length} doubt(s) and ${complaintIds.length} complaint(s)...`,
+  );
+  for (const id of doubtIds) await enqueueEmbedding("doubt", id);
+  for (const id of complaintIds) await enqueueEmbedding("complaint", id);
 
   console.log(`Draining in batches of ${EMBEDDING_BATCH_SIZE}...`);
   let batch = 0;
@@ -82,10 +87,12 @@ const main = async () => {
 
   const after = await getEmbeddingStats();
   console.log(
-    `\nAfter: ${after.embedded}/${after.totalDoubts} doubts embedded ` +
+    `
+After: doubts ${after.embedded}/${after.totalDoubts}, ` +
+      `complaints ${after.complaintsEmbedded}/${after.totalComplaints} ` +
       `(${after.pending} pending, ${after.failed} failed)`,
   );
-  console.log(`Embedded ${embedded} doubt(s) in this run.`);
+  console.log(`Embedded ${embedded} record(s) in this run.`);
 
   if (after.failed > 0) {
     console.log(
