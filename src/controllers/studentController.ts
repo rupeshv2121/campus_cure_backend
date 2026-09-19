@@ -1,6 +1,7 @@
 import { ApprovalStatus, DoubtStatus, Prisma, Role } from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
+import { hybridSearchDoubts } from "../services/search/hybridSearch.js";
 import {
   requestEmbedding,
   triggerDrainInBackground,
@@ -27,53 +28,9 @@ const DEFAULT_ALLOWED_COMPLAINT_CATEGORIES = [
 
 const DEFAULT_DOUBT_SUBJECTS = ["DSA", "DBMS", "OS", "NETWORKS"];
 
-const KEYWORD_STOP_WORDS = new Set([
-  "a",
-  "an",
-  "and",
-  "are",
-  "as",
-  "at",
-  "be",
-  "by",
-  "for",
-  "from",
-  "how",
-  "i",
-  "in",
-  "is",
-  "it",
-  "of",
-  "on",
-  "or",
-  "that",
-  "the",
-  "this",
-  "to",
-  "was",
-  "what",
-  "when",
-  "where",
-  "which",
-  "why",
-  "with",
-]);
-
-const normalizeForKeywordMatch = (value: string): string =>
-  value
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-const extractKeywords = (value: string): string[] => {
-  const normalized = normalizeForKeywordMatch(value);
-  const tokens = normalized.split(" ").filter((token) => {
-    return token.length >= 3 && !KEYWORD_STOP_WORDS.has(token);
-  });
-
-  return [...new Set(tokens)].slice(0, 8);
-};
+// The keyword scorer moved to services/search/keywordRetriever.ts in CC-11.
+// It is the measured baseline for hybrid search, so it must have exactly one
+// definition - two copies would silently drift apart.
 
 type CommonDoubtsWindow = "all" | "30d" | "90d";
 
@@ -549,6 +506,10 @@ export const getSimilarDoubtSuggestions = async (
         : undefined;
     const limitRaw =
       typeof req.query.limit === "string" ? Number(req.query.limit) : undefined;
+    const excludeId =
+      typeof req.query.excludeId === "string"
+        ? req.query.excludeId.trim()
+        : undefined;
 
     const semester =
       typeof semesterRaw === "number" &&
@@ -562,118 +523,36 @@ export const getSimilarDoubtSuggestions = async (
         ? Math.min(Math.max(limitRaw, 1), 10)
         : 5;
 
+    // Short queries produce noise and would spend provider quota on nothing.
     if (query.length < 3) {
       res.json({ suggestions: [] });
       return;
     }
 
-    const normalizedQuery = normalizeForKeywordMatch(query);
-    const keywords = extractKeywords(query);
-
-    const keywordClauses: Prisma.DoubtWhereInput[] = keywords.flatMap(
-      (keyword) => [
-        { title: { contains: keyword, mode: "insensitive" } },
-        { description: { contains: keyword, mode: "insensitive" } },
-      ],
-    );
-
-    const queryClauses: Prisma.DoubtWhereInput[] = [
-      { title: { contains: query, mode: "insensitive" } },
-      { description: { contains: query, mode: "insensitive" } },
-    ];
-
-    const orClauses = [...queryClauses, ...keywordClauses];
-    if (orClauses.length === 0) {
-      res.json({ suggestions: [] });
-      return;
-    }
-
-    const where: Prisma.DoubtWhereInput = {
-      ...(subject ? { subject } : {}),
-      ...(semester ? { semester } : {}),
-      OR: orClauses,
-    };
-
-    const candidates = await prisma.doubt.findMany({
-      where,
-      select: {
-        id: true,
-        title: true,
-        description: true,
-        subject: true,
-        semester: true,
-        views: true,
-        createdAt: true,
-        _count: {
-          select: {
-            answers: true,
-          },
-        },
-      },
-      take: 40,
-      orderBy: {
-        createdAt: "desc",
-      },
+    // CC-11: keyword + full-text + vector, fused with RRF. Degrades to whatever
+    // retrievers are available - a provider outage must never break search.
+    const { doubts, used, degraded } = await hybridSearchDoubts(query, {
+      subject,
+      semester,
+      excludeId,
+      limit,
     });
 
-    const scored = candidates
-      .map((candidate) => {
-        const title = normalizeForKeywordMatch(candidate.title);
-        const description = normalizeForKeywordMatch(candidate.description);
-
-        let score = 0;
-        if (title.includes(normalizedQuery)) {
-          score += 6;
-        }
-        if (description.includes(normalizedQuery)) {
-          score += 3;
-        }
-
-        const matchedKeywords = keywords.filter((keyword) => {
-          const inTitle = title.includes(keyword);
-          const inDescription = description.includes(keyword);
-
-          if (inTitle) {
-            score += 3;
-          } else if (inDescription) {
-            score += 1;
-          }
-
-          return inTitle || inDescription;
-        });
-
-        return {
-          id: candidate.id,
-          title: candidate.title,
-          subject: candidate.subject,
-          semester: candidate.semester,
-          views: candidate.views,
-          answerCount: candidate._count.answers,
-          createdAt: candidate.createdAt,
-          matchedKeywords,
-          score,
-        };
-      })
-      .filter((candidate) => candidate.score > 0)
-      .sort((a, b) => {
-        if (b.score !== a.score) {
-          return b.score - a.score;
-        }
-        if (b.answerCount !== a.answerCount) {
-          return b.answerCount - a.answerCount;
-        }
-        if (b.views !== a.views) {
-          return b.views - a.views;
-        }
-        return b.createdAt.getTime() - a.createdAt.getTime();
-      })
-      .slice(0, limit)
-      .map(({ createdAt, score, ...candidate }) => ({
-        ...candidate,
-        createdAt: createdAt.toISOString(),
-      }));
-
-    res.json({ suggestions: scored });
+    res.json({
+      suggestions: doubts.map((doubt) => ({
+        id: doubt.id,
+        title: doubt.title,
+        subject: doubt.subject,
+        semester: doubt.semester,
+        views: doubt.views,
+        answerCount: doubt._count.answers,
+        createdAt: doubt.createdAt.toISOString(),
+        matchedKeywords: doubt.matchedKeywords,
+      })),
+      // Additive fields; existing clients ignore them.
+      retrievers: used,
+      degraded,
+    });
   } catch (error) {
     console.error("Error fetching doubt suggestions:", error);
     res.status(500).json({ error: "Internal server error" });
