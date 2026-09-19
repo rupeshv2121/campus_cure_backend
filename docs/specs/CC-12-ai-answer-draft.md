@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Shipped 2026-09-20 — backend; frontend pending |
+| **Status** | **Shipped 2026-09-20 — complete** |
 | **Phase** | 1 |
 | **Branch** | `feat/CC-12-ai-answer-draft` |
 | **Repos** | backend (frontend follow-up) |
@@ -215,10 +215,24 @@ reaching a student, not merely filtered out.
 02:30). The Hobby plan restricts both the number of cron jobs and their frequency; confirm both are
 accepted, and if only one is permitted, fold draft generation into the embedding drain endpoint.
 
-### Not done
+### Frontend — done 2026-09-20
 
-- **Frontend.** All four endpoints exist and are faculty-guarded, but no UI calls them. The faculty
-  doubt view should show the draft with its grounding sources, an editable textarea, and Approve /
-  Reject — with approval sending the *edited* text so `editedOnApproval` is meaningful.
-- One `PENDING` draft now exists in production, on doubt "New Title 2". It is invisible to students;
-  a faculty member can reject it.
+The draft appears on the faculty doubt page above the answer box, visually separated and tagged
+"Not visible to students", with a warning that states the risk plainly rather than burying it.
+
+- Editable in place; approval sends whatever is on screen, so `editedOnApproval` reflects reality.
+- Grounding sources are expandable, so a reviewer can check what the draft was built from rather
+  than trusting it. Grounding that cannot be inspected is not much better than no grounding.
+- "Suggest a draft" appears only when there is no draft and no answer, so it cannot regenerate over
+  a draft already under review.
+
+Both API clients swallow failures and return `null`/`[]`: a faculty member must still be able to
+answer when AI is unavailable.
+
+Verified: typecheck and build clean; eslint reports exactly the same 5 pre-existing errors as `main`,
+so no new lint problems were introduced.
+
+### Note
+
+One `PENDING` draft exists in production on doubt "New Title 2" — invisible to students, and now
+rejectable through the UI.

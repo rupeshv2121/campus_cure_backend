@@ -333,7 +333,7 @@ they conflict, and resolving it after both have applied locally is genuinely pai
 | CC-01c | [Privileged role escalation](specs/CC-01c-privileged-role-escalation.md) | **Shipped** 2026-09-19 |
 | CC-10 | [Embedding infrastructure](specs/CC-10-embedding-infra.md) | **Shipped** 2026-09-19 |
 | CC-11 | [Hybrid semantic search + eval harness](specs/CC-11-hybrid-search.md) | **Shipped** 2026-09-19 |
-| CC-12 | [Retrieval-grounded AI answer drafts](specs/CC-12-ai-answer-draft.md) | **Shipped** 2026-09-20 — backend; frontend pending |
+| CC-12 | [Retrieval-grounded AI answer drafts](specs/CC-12-ai-answer-draft.md) | **Shipped** 2026-09-20 — complete |
 | CC-13 | [Duplicate complaint detection](specs/CC-13-complaint-dedup.md) | **Shipped** 2026-09-20 — complete (13/13) |
 | — | [Spec template](specs/TEMPLATE.md) | — |
 

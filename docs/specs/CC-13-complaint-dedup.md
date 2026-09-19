@@ -230,8 +230,15 @@ a result.
 
 131 tests passing, including the new admin route in the authorization matrix.
 
+### Admin UI — done 2026-09-20
+
+A collapsible panel on the admin complaints page lists clusters grouped by room, oldest first, with
+the closest-match percentage. Advisory and read-only: nothing merges or closes, and the copy warns
+that two students can report genuinely different problems in the same room.
+
+The cluster fetch swallows failures and returns `[]`, so triage never breaks because AI is down.
+
 ### Still open
 
 - A confirmed duplicate cannot yet be *linked* by an admin (`duplicateOfId`), so a cluster is
   recomputed rather than remembered. Deferred deliberately — see Open questions.
-- No admin UI consumes the cluster endpoint yet.
