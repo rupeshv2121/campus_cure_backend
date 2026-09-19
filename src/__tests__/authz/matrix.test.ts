@@ -45,6 +45,18 @@ const ROUTES: RouteCase[] = [
     allow: ["STUDENT", "FACULTY"],
   },
   { method: "get", path: "/api/faculty/me", allow: ["FACULTY"] },
+  // CC-12: AI answer drafts must never be reachable by a student or an admin.
+  { method: "get", path: "/api/faculty/doubts/x/draft", allow: ["FACULTY"] },
+  {
+    method: "post",
+    path: "/api/faculty/doubts/x/draft/approve",
+    allow: ["FACULTY"],
+  },
+  {
+    method: "post",
+    path: "/api/faculty/doubts/x/draft/reject",
+    allow: ["FACULTY"],
+  },
   {
     method: "get",
     path: "/api/admin/dashboard",

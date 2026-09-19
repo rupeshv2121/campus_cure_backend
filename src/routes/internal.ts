@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { CRON_SECRET, INTERNAL_API_SECRET } from "../config/env.js";
 import { getEmbeddingStats } from "../repositories/embeddingRepository.js";
 import { runEmbeddingDrain } from "../services/ai/embeddingWorker.js";
+import { runDraftGeneration } from "../services/ai/answerDraft.js";
 
 const router = Router();
 
@@ -81,5 +82,20 @@ router.get("/embeddings/stats", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Stats failed" });
   }
 });
+
+/** CC-12: draft answers for the oldest eligible unanswered doubts. */
+const draftHandler = async (req: Request, res: Response): Promise<void> => {
+  if (!requireInternalSecret(req, res)) return;
+
+  try {
+    res.json(await runDraftGeneration());
+  } catch (error) {
+    console.error("[internal] draft generation failed:", error);
+    res.status(500).json({ error: "Draft generation failed" });
+  }
+};
+
+router.post("/drafts/generate", draftHandler);
+router.get("/drafts/generate", draftHandler);
 
 export default router;

@@ -29,6 +29,10 @@
     {
       "path": "/api/internal/embeddings/drain",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/internal/drafts/generate",
+      "schedule": "30 2 * * *"
     }
   ]
 }
