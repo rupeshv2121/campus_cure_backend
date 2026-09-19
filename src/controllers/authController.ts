@@ -6,6 +6,47 @@ import { JWT_SECRET, prisma } from "../config/database.js";
 import type { AuthRequest } from "../types/index.js";
 import { withRetry } from "../utils/retry.js";
 
+/**
+ * Roles a stranger may create for themselves via the public register endpoint.
+ */
+const SELF_SERVICE_ROLES: Role[] = [Role.STUDENT, Role.FACULTY];
+
+/**
+ * Roles that may only be created by an existing SUPER_ADMIN.
+ *
+ * Without this, `POST /api/auth/register` accepted `role: "SUPER_ADMIN"` straight
+ * from the request body. Combined with the approval check being disabled at
+ * login, anyone on the internet could register as a super admin and immediately
+ * sign in with full access. See docs/specs/CC-01c-privileged-role-escalation.md.
+ */
+const PRIVILEGED_ROLES: Role[] = [Role.ADMIN, Role.SUPER_ADMIN];
+
+/**
+ * Returns true when the request carries a valid bearer token belonging to an
+ * active SUPER_ADMIN. The database is consulted rather than trusting the token
+ * claim alone, so that a deactivated super admin cannot mint new admins.
+ */
+const isRequestFromActiveSuperAdmin = async (req: Request): Promise<boolean> => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return false;
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as { id?: string };
+    if (!decoded.id) return false;
+
+    const requester = await prisma.user.findUnique({
+      where: { id: decoded.id },
+      select: { role: true, isActive: true },
+    });
+
+    return (
+      !!requester && requester.isActive && requester.role === Role.SUPER_ADMIN
+    );
+  } catch {
+    return false;
+  }
+};
+
 // 1. Register (Student / Faculty / Admin)
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -18,9 +59,24 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     }
 
     // Validate role
-    if (!["STUDENT", "FACULTY", "ADMIN", "SUPER_ADMIN"].includes(role)) {
+    const requestedRole = role as Role;
+    if (
+      ![...SELF_SERVICE_ROLES, ...PRIVILEGED_ROLES].includes(requestedRole)
+    ) {
       res.status(400).json({ error: "Invalid role" });
       return;
+    }
+
+    // Privileged roles cannot be self-assigned. Creating an admin or super
+    // admin requires an existing, active SUPER_ADMIN to authorise the request.
+    if (PRIVILEGED_ROLES.includes(requestedRole)) {
+      if (!(await isRequestFromActiveSuperAdmin(req))) {
+        res.status(403).json({
+          error:
+            "Administrator accounts can only be created by an existing super admin.",
+        });
+        return;
+      }
     }
 
     // Check if user already exists
