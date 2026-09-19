@@ -75,6 +75,8 @@ const ROUTES: RouteCase[] = [
     path: "/api/notifications/",
     allow: ["STUDENT", "FACULTY", "ADMIN", "SUPER_ADMIN"],
   },
+  // CC-15: the chatbot exposes student-scoped tools, so only students reach it.
+  { method: "post", path: "/api/chat/", allow: ["STUDENT"] },
 ];
 
 beforeEach(() => {
