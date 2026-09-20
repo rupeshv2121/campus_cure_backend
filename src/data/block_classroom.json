@@ -1,0 +1,38 @@
+{
+    "ML": {
+        "name": "ML Block",
+        "classrooms": [
+            "ML01",
+            "ML02",
+            "ML03",
+            "ML04",
+            "ML05",
+            "ML06",
+            "ML07",
+            "ML08",
+            "ML09",
+            "ML10"
+        ]
+    },
+    "NL": {
+        "name": "NL Block",
+        "classrooms": [
+            "NL20",
+            "NL21",
+            "NL22",
+            "NL23",
+            "NL24",
+            "NL25",
+            "NL26",
+            "NL27",
+            "NL28",
+            "NL29",
+            "NL30",
+            "NL31",
+            "NL32",
+            "NL33",
+            "NL34",
+            "NL35"
+        ]
+    }
+}

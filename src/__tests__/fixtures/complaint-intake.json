@@ -1,0 +1,44 @@
+{
+  "_readme": [
+    "Labelled complaint texts for CC-14 evaluation.",
+    "",
+    "Deliberately mixed so the comparison is honest rather than rigged:",
+    "",
+    "  keyword  - names the thing outright. Rules should win, and the model",
+    "             should never be called.",
+    "  implicit - describes the fault without naming the object ('the thing on",
+    "             the ceiling stopped spinning'). Rules cannot do this.",
+    "  trap     - contains a word the rules key on, but about something else",
+    "             ('wasp nest outside the WINDOW'). Rules-first means these are",
+    "             misclassified and never reach the model, which is the main",
+    "             cost of the design and must be measured, not hidden.",
+    "  other    - genuinely does not fit a category.",
+    "",
+    "expectedCategory null means no category is correct."
+  ],
+  "cases": [
+    { "kind": "keyword", "text": "The projector in ML03 will not switch on at all", "expectedCategory": "SMART_BOARD", "expectedRoom": "ML03" },
+    { "kind": "keyword", "text": "Ceiling fan not working in NL22, room is very hot", "expectedCategory": "FAN", "expectedRoom": "NL22" },
+    { "kind": "keyword", "text": "Tube lights not glowing in ML05", "expectedCategory": "LIGHT", "expectedRoom": "ML05" },
+    { "kind": "keyword", "text": "No wifi connectivity in the lab ML07", "expectedCategory": "NETWORK", "expectedRoom": "ML07" },
+    { "kind": "keyword", "text": "Broken chair in NL21, the backrest is cracked", "expectedCategory": "SEATING", "expectedRoom": "NL21" },
+    { "kind": "keyword", "text": "The whiteboard in NL24 is damaged and cannot be wiped", "expectedCategory": "FURNITURE", "expectedRoom": "NL24" },
+    { "kind": "keyword", "text": "Smart board touch is not responding in ML 06", "expectedCategory": "SMART_BOARD", "expectedRoom": "ML06" },
+    { "kind": "keyword", "text": "internet is down in NL-25 since morning", "expectedCategory": "NETWORK", "expectedRoom": "NL25" },
+
+    { "kind": "implicit", "text": "It is freezing in NL22 and the thing on the ceiling has stopped spinning", "expectedCategory": "FAN", "expectedRoom": "NL22" },
+    { "kind": "implicit", "text": "We cannot see the slides at the back of ML03, nothing comes up on the wall", "expectedCategory": "SMART_BOARD", "expectedRoom": "ML03" },
+    { "kind": "implicit", "text": "The room ML05 is very dim even during the day, we cannot read our notes", "expectedCategory": "LIGHT", "expectedRoom": "ML05" },
+    { "kind": "implicit", "text": "Nothing loads on any machine in ML07, pages just time out", "expectedCategory": "NETWORK", "expectedRoom": "ML07" },
+    { "kind": "implicit", "text": "Three of us have nowhere to sit in NL23, we stood for the whole lecture", "expectedCategory": "SEATING", "expectedRoom": "NL23" },
+    { "kind": "implicit", "text": "The thing we write on in NL26 has gone completely smudged and grey", "expectedCategory": "FURNITURE", "expectedRoom": "NL26" },
+
+    { "kind": "trap", "text": "There is a wasp nest outside the window of NL24", "expectedCategory": "OTHER", "expectedRoom": "NL24" },
+    { "kind": "trap", "text": "A student left a table tennis bat in ML01, can it be returned", "expectedCategory": "OTHER", "expectedRoom": "ML01" },
+    { "kind": "trap", "text": "The display of exam results has not been put up near NL20", "expectedCategory": "OTHER", "expectedRoom": "NL20" },
+
+    { "kind": "other", "text": "Somebody spilled water near the power socket in ML05 and it looks dangerous", "expectedCategory": "OTHER", "expectedRoom": "ML05" },
+    { "kind": "other", "text": "The drinking water cooler on the second floor is empty", "expectedCategory": "OTHER", "expectedRoom": null },
+    { "kind": "other", "text": "NL21 has not been swept for several days and is very dusty", "expectedCategory": "OTHER", "expectedRoom": "NL21" }
+  ]
+}
