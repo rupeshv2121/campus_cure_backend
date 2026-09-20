@@ -335,6 +335,7 @@ they conflict, and resolving it after both have applied locally is genuinely pai
 | CC-11 | [Hybrid semantic search + eval harness](specs/CC-11-hybrid-search.md) | **Shipped** 2026-09-19 |
 | CC-12 | [Retrieval-grounded AI answer drafts](specs/CC-12-ai-answer-draft.md) | **Shipped** 2026-09-20 — complete |
 | CC-13 | [Duplicate complaint detection](specs/CC-13-complaint-dedup.md) | **Shipped** 2026-09-20 — complete (13/13) |
+| CC-14 | [Structured complaint intake](specs/CC-14-complaint-intake.md) | **Shipped** 2026-09-20 — complete |
 | CC-15 | [Tool-calling chatbot](specs/CC-15-chatbot.md) | **Shipped** 2026-09-20 — complete |
 | — | [Spec template](specs/TEMPLATE.md) | — |
 

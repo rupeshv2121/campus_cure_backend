@@ -4,6 +4,10 @@ import { prisma } from "../config/database.js";
 import { hybridSearchDoubts } from "../services/search/hybridSearch.js";
 import { findDuplicateComplaints } from "../services/search/duplicateComplaints.js";
 import {
+  MIN_TEXT_LENGTH,
+  parseComplaintText,
+} from "../services/intake/parseComplaint.js";
+import {
   requestEmbedding,
   triggerDrainInBackground,
 } from "../services/ai/embeddingWorker.js";
@@ -430,6 +434,45 @@ export const raiseComplaint = async (
   } catch (error) {
     console.error("Error raising complaint:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * CC-14: turn a free-text complaint into structured fields.
+ *
+ * Read-only and advisory. The result is shown to the student for confirmation
+ * before anything is filed — this never categorises silently, and the full form
+ * remains available behind it.
+ */
+export const parseComplaint = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { text } = req.body as { text?: unknown };
+
+    if (typeof text !== "string" || text.trim().length < MIN_TEXT_LENGTH) {
+      res.json({
+        category: null,
+        priority: null,
+        block: null,
+        classroomNumber: null,
+        source: "none",
+      });
+      return;
+    }
+
+    res.json(await parseComplaintText(text));
+  } catch (error) {
+    console.error("Error parsing complaint:", error);
+    // Advisory: degrade to "no suggestion" rather than blocking the form.
+    res.json({
+      category: null,
+      priority: null,
+      block: null,
+      classroomNumber: null,
+      source: "none",
+    });
   }
 };
 

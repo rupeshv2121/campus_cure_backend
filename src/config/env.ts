@@ -88,6 +88,27 @@ export const NODE_ENV = process.env.NODE_ENV?.trim() || "development";
 export const IS_PRODUCTION = NODE_ENV === "production";
 
 /**
+ * Complaint intake strategy (CC-14).
+ *
+ * false (default): rules run first and the model is called only on a miss.
+ * true: the model is always consulted.
+ *
+ * Measured on 20 labelled complaints: rules-first scores 85% against
+ * model-always at 95%. The whole 10-point gap is "trap" cases — text
+ * containing a category keyword that is incidental, such as a wasp nest
+ * outside a WINDOW — because a rules hit never reaches the model.
+ *
+ * Rules-first is still the default: it answered 55% of cases at zero cost and
+ * zero latency, which matters on a free tier, and the student confirms every
+ * suggestion so a wrong one is corrected rather than filed. Set this to true if
+ * quota stops being the binding constraint.
+ *
+ * Re-measure before changing it: npx tsx src/scripts/evalIntake.ts
+ */
+export const INTAKE_PREFER_MODEL =
+  process.env.INTAKE_PREFER_MODEL?.trim().toLowerCase() === "true";
+
+/**
  * Access token lifetime (CC-01b).
  *
  * Short by design: an access token cannot be revoked, so its blast radius is

@@ -39,6 +39,8 @@ interface RouteCase {
  */
 const ROUTES: RouteCase[] = [
   { method: "get", path: "/api/students/me", allow: ["STUDENT"] },
+  // CC-14: intake parsing costs provider quota, so it is students only.
+  { method: "post", path: "/api/students/complaints/parse", allow: ["STUDENT"] },
   {
     method: "get",
     path: "/api/students/settings/posting",

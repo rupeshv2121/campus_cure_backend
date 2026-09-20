@@ -20,6 +20,7 @@ import {
   markAnswerAsAccepted,
   postAnswer,
   getSimilarComplaints,
+  parseComplaint,
   postDoubt,
   raiseComplaint,
   rejectComplaintResolution,
@@ -61,6 +62,14 @@ router.post(
 
 // 9. Get All Complaints for student
 router.get("/complaints", authenticate, authorize(Role.STUDENT), getComplaints);
+
+// CC-14: free text -> structured fields. Advisory; the student confirms.
+router.post(
+  "/complaints/parse",
+  authenticate,
+  authorize(Role.STUDENT),
+  parseComplaint,
+);
 
 // CC-13: pre-submit duplicate check. Advisory only - never blocks filing.
 // Registered before any /complaints/:param route so "similar" is not captured
