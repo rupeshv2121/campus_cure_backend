@@ -6,6 +6,8 @@
  * authentication — see docs/specs/CC-01-security-baseline.md.
  */
 
+import { createHash } from "node:crypto";
+
 const MIN_JWT_SECRET_LENGTH = 32;
 
 /**
@@ -15,6 +17,25 @@ const MIN_JWT_SECRET_LENGTH = 32;
  * repository.
  */
 const BANNED_SECRETS = new Set(["your-secret-key-change-in-production"]);
+
+/**
+ * SHA-256 of secrets known to have leaked outside the project.
+ *
+ * Hashes rather than literals, so blocking a compromised value does not
+ * republish it here.
+ *
+ * A leaked secret is not a weak one — the entry below is 64 characters and
+ * passes every length and entropy check. That is exactly why this list is
+ * needed: the length rule cannot catch it, and a warning in a chat log is not
+ * a control. Anything on this list makes the process refuse to start, in every
+ * environment, permanently.
+ *
+ * To add one:  node -e "console.log(require('crypto').createHash('sha256').update(process.argv[1]).digest('hex'))" "<secret>"
+ */
+const BANNED_SECRET_HASHES = new Set([
+  // Leaked into a shared transcript on 2026-09-20 via an editor selection.
+  "b79c03419d2a569542b7d1eb91963fef92817b721c3907ddb0205cf36ef679bb",
+]);
 
 const fatal = (message: string): never => {
   throw new Error(`FATAL: ${message} Refusing to start.`);
@@ -35,6 +56,15 @@ const readJwtSecret = (): string => {
     fatal(
       "JWT_SECRET is set to a known default that has appeared in source control. " +
         "Generate a new one: openssl rand -base64 48",
+    );
+  }
+
+  if (BANNED_SECRET_HASHES.has(createHash("sha256").update(secret).digest("hex"))) {
+    fatal(
+      "JWT_SECRET matches a value known to have leaked outside this project. " +
+        "It is long enough, but it is not secret, so tokens signed with it are " +
+        "forgeable by anyone who has seen it. Generate a new one and do not " +
+        "paste it anywhere: openssl rand -base64 48",
     );
   }
 
