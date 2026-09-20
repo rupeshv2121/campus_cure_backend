@@ -68,10 +68,15 @@ not exist.
 
 ### Priority
 
-1 (urgent) / 2 (normal) / 3 (low), inferred from the text — "cannot take the lecture" is urgent, "the
-board is a bit scratched" is not. Today `priority` is student-supplied, which means everything is
-urgent; an inferred default that the student can override is more useful than a field nobody thinks
-about.
+**1 (Low) to 5 (Critical)**, matching the form the student already sees and the values already in the
+database. Inferred from the text — "cannot take the lecture" is Critical, "a bit scratched" is Low.
+
+The direction was wrong in the first implementation and is worth stating explicitly, because it is
+easy to get backwards and silent when you do: an inverted scale files "sparking socket, dangerous"
+as **Low**. A test pins it.
+
+Today `priority` is student-supplied, which means everything is urgent; an inferred default the
+student can override is more useful than a field nobody thinks about.
 
 ### Endpoint
 
@@ -93,7 +98,7 @@ provider, or a provider outage, the rules still run and whatever they find is re
 2. Text the rules cannot classify falls through to the model.
 3. A block and room mentioned in the text are extracted and **validated against the known list**.
 4. A room not on the known list is dropped, never returned.
-5. Priority is inferred and is one of 1, 2, 3.
+5. Priority is inferred and is one of 1–5, in the same direction as the form (1 Low, 5 Critical).
 6. `source` reports correctly which path answered.
 7. Nothing is written to the database by parsing.
 8. With `AI_ENABLED=false`, rules still work and the endpoint still answers.
