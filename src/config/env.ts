@@ -57,6 +57,40 @@ export const FRONTEND_URL = process.env.FRONTEND_URL?.trim() || undefined;
 export const NODE_ENV = process.env.NODE_ENV?.trim() || "development";
 export const IS_PRODUCTION = NODE_ENV === "production";
 
+/**
+ * Access token lifetime (CC-01b).
+ *
+ * Short by design: an access token cannot be revoked, so its blast radius is
+ * bounded only by how long it lives. The refresh token behind it carries the
+ * session, and that one IS revocable.
+ *
+ * An env var rather than a constant because if this proves too aggressive on
+ * flaky campus wifi it must be adjustable without a deploy.
+ */
+const parseDurationToSeconds = (value: string, fallback: number): number => {
+  const match = /^(\d+)\s*([smhd])?$/.exec(value.trim());
+  if (!match) return fallback;
+
+  const amount = Number(match[1]);
+  const unit = match[2] ?? "s";
+  const multiplier = { s: 1, m: 60, h: 3600, d: 86_400 }[unit] ?? 1;
+  return amount * multiplier;
+};
+
+/**
+ * Expressed in seconds rather than a duration string so it is unambiguous and
+ * typechecks against jsonwebtoken's `expiresIn`. The env var still accepts the
+ * friendly form: "15m", "2h", "900".
+ */
+export const ACCESS_TOKEN_TTL_SECONDS = parseDurationToSeconds(
+  process.env.ACCESS_TOKEN_TTL ?? "15m",
+  900,
+);
+
+export const REFRESH_TOKEN_TTL_DAYS = Number(
+  process.env.REFRESH_TOKEN_TTL_DAYS ?? 7,
+);
+
 /* ------------------------------------------------------------------ *
  * AI configuration (CC-10)
  *

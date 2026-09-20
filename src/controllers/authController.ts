@@ -3,6 +3,12 @@ import bcrypt from "bcrypt";
 import type { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { JWT_SECRET, prisma } from "../config/database.js";
+import { ACCESS_TOKEN_TTL_SECONDS } from "../config/env.js";
+import {
+  issueRefreshToken,
+  revokeRefreshToken,
+  rotateRefreshToken,
+} from "../services/auth/refreshTokens.js";
 import type { AuthRequest } from "../types/index.js";
 import { withRetry } from "../utils/retry.js";
 
@@ -295,12 +301,20 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         university: user.university,
       },
       JWT_SECRET,
-      { expiresIn: "7d" },
+      { expiresIn: ACCESS_TOKEN_TTL_SECONDS },
+    );
+
+    // CC-01b: the access token is short-lived and cannot be revoked; this is
+    // the revocable half of the session.
+    const issuedRefresh = await issueRefreshToken(
+      user.id,
+      req.headers["user-agent"],
     );
 
     res.json({
       message: "Login successful",
       token,
+      refreshToken: issuedRefresh.token,
       user: {
         id: user.id,
         name: user.name,
@@ -363,16 +377,32 @@ export const getMe = async (req: AuthRequest, res: Response): Promise<void> => {
 };
 
 // 4. Logout
+/**
+ * Log out.
+ *
+ * Deliberately does NOT require a valid access token: an expired access token
+ * is exactly the moment logout still needs to work. The refresh token in the
+ * body is what actually ends the session.
+ */
 export const logout = async (
   req: AuthRequest,
   res: Response,
 ): Promise<void> => {
   try {
-    // Update user status to inactive
-    await prisma.user.update({
-      where: { id: req.user!.id },
-      data: { isActive: false },
-    });
+    const { refreshToken } = req.body as { refreshToken?: unknown };
+
+    if (typeof refreshToken === "string" && refreshToken) {
+      await revokeRefreshToken(refreshToken);
+    }
+
+    // Only flip isActive when we know who is asking; with an expired access
+    // token we do not, and revoking the refresh token is the part that matters.
+    if (req.user?.id) {
+      await prisma.user.update({
+        where: { id: req.user.id },
+        data: { isActive: false },
+      });
+    }
 
     res.json({ message: "Logout successful" });
   } catch (error) {
@@ -526,12 +556,21 @@ export const faceLogin = async (req: Request, res: Response): Promise<void> => {
         university: bestMatch.university,
       },
       JWT_SECRET,
-      { expiresIn: "7d" },
+      { expiresIn: ACCESS_TOKEN_TTL_SECONDS },
+    );
+
+    // CC-01b: face login is a full session, so it gets the revocable half too.
+    // Without this, face-login users would be signed out at the access token
+    // TTL with no way to refresh.
+    const issuedRefresh = await issueRefreshToken(
+      bestMatch.id,
+      req.headers["user-agent"],
     );
 
     res.json({
       message: "Face login successful",
       token,
+      refreshToken: issuedRefresh.token,
       user: {
         id: bestMatch.id,
         name: bestMatch.name,
@@ -545,6 +584,66 @@ export const faceLogin = async (req: Request, res: Response): Promise<void> => {
     });
   } catch (error) {
     console.error("Face login error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+
+/**
+ * CC-01b: exchange a refresh token for a new access token.
+ *
+ * Rotates on every call, so a refresh token is valid exactly once. Presenting
+ * an already-rotated token revokes the entire family — see
+ * services/auth/refreshTokens.ts.
+ */
+export const refresh = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { refreshToken } = req.body as { refreshToken?: unknown };
+
+    if (typeof refreshToken !== "string" || !refreshToken) {
+      res.status(400).json({ error: "Refresh token is required" });
+      return;
+    }
+
+    const result = await rotateRefreshToken(refreshToken);
+
+    if (!result.ok) {
+      // One generic message for every failure: distinguishing "expired" from
+      // "reused" would tell an attacker whether a stolen token had been used.
+      res.status(401).json({ error: "Session expired. Please sign in again." });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: result.userId },
+      select: {
+        id: true,
+        role: true,
+        userID: true,
+        university: true,
+        isActive: true,
+      },
+    });
+
+    if (!user || !user.isActive) {
+      res.status(401).json({ error: "Session expired. Please sign in again." });
+      return;
+    }
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        role: user.role,
+        userID: user.userID,
+        university: user.university,
+      },
+      JWT_SECRET,
+      { expiresIn: ACCESS_TOKEN_TTL_SECONDS },
+    );
+
+    res.json({ token, refreshToken: result.token });
+  } catch (error) {
+    console.error("Refresh error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

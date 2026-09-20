@@ -4,6 +4,7 @@ import { CRON_SECRET, INTERNAL_API_SECRET } from "../config/env.js";
 import { getEmbeddingStats } from "../repositories/embeddingRepository.js";
 import { runEmbeddingDrain } from "../services/ai/embeddingWorker.js";
 import { runDraftGeneration } from "../services/ai/answerDraft.js";
+import { purgeExpiredRefreshTokens } from "../services/auth/refreshTokens.js";
 
 const router = Router();
 
@@ -97,5 +98,43 @@ const draftHandler = async (req: Request, res: Response): Promise<void> => {
 
 router.post("/drafts/generate", draftHandler);
 router.get("/drafts/generate", draftHandler);
+
+/**
+ * One daily job doing all the scheduled work.
+ *
+ * Consolidated deliberately: Vercel's Hobby plan caps both the number of cron
+ * entries and their frequency, and two separate entries sat right at that
+ * limit. One endpoint is also easier to reason about — the whole nightly
+ * routine either ran or it did not.
+ *
+ * Each step is independent: a failure in one is reported and the rest still
+ * run, because a rate-limited embedding provider should not stop expired
+ * refresh tokens being cleaned up.
+ */
+const dailyHandler = async (req: Request, res: Response): Promise<void> => {
+  if (!requireInternalSecret(req, res)) return;
+
+  const results: Record<string, unknown> = {};
+
+  const step = async (name: string, run: () => Promise<unknown>) => {
+    try {
+      results[name] = await run();
+    } catch (error) {
+      console.error(`[cron] ${name} failed:`, (error as Error).message);
+      results[name] = { error: (error as Error).message };
+    }
+  };
+
+  await step("embeddings", () => runEmbeddingDrain());
+  await step("drafts", () => runDraftGeneration());
+  await step("purgedRefreshTokens", async () => ({
+    deleted: await purgeExpiredRefreshTokens(),
+  }));
+
+  res.json(results);
+};
+
+router.post("/cron/daily", dailyHandler);
+router.get("/cron/daily", dailyHandler);
 
 export default router;

@@ -27,12 +27,8 @@
   ],
   "crons": [
     {
-      "path": "/api/internal/embeddings/drain",
+      "path": "/api/internal/cron/daily",
       "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/api/internal/drafts/generate",
-      "schedule": "30 2 * * *"
     }
   ]
 }
