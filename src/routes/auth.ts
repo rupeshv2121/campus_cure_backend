@@ -4,6 +4,7 @@ import {
   getMe,
   login,
   logout,
+  refresh,
   register,
   saveFaceDescriptor,
 } from "../controllers/authController.js";
@@ -23,7 +24,15 @@ router.post("/login", authLimiter, login);
 router.get("/me", authenticate, getMe);
 
 // 4. Logout
-router.post("/logout", authenticate, logout);
+//
+// Deliberately NOT behind `authenticate`: an expired access token is exactly
+// when logout still needs to work. The refresh token in the body is what ends
+// the session, and revoking it requires possessing it.
+router.post("/logout", logout);
+
+// 7. Refresh (CC-01b). Rate limited with the other credential endpoints —
+// a refresh token is a credential.
+router.post("/refresh", authLimiter, refresh);
 
 // 5. Save Face Descriptor (requires JWT — called right after registration)
 router.post("/save-face-descriptor", authenticate, saveFaceDescriptor);

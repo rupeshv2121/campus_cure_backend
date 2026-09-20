@@ -327,8 +327,8 @@ they conflict, and resolving it after both have applied locally is genuinely pai
 | ID | Spec | Status |
 |---|---|---|
 | CC-00 | [Project hygiene & conventions](specs/CC-00-repo-hygiene.md) | **Shipped** 2026-09-19 |
-| CC-01 | [Security baseline](specs/CC-01-security-baseline.md) | **Partially shipped** — refresh tokens split to CC-01b |
-| CC-01b | Refresh tokens & revocation *(spec pending)* | Not started — needs migration + frontend |
+| CC-01 | [Security baseline](specs/CC-01-security-baseline.md) | **Shipped** — completed by CC-01b |
+| CC-01b | [Refresh tokens & revocation](specs/CC-01b-refresh-tokens.md) | **Shipped** 2026-09-20 — complete |
 | CC-04 | [Test harness & CI](specs/CC-04-test-harness.md) | **Shipped** 2026-09-19 |
 | CC-01c | [Privileged role escalation](specs/CC-01c-privileged-role-escalation.md) | **Shipped** 2026-09-19 |
 | CC-10 | [Embedding infrastructure](specs/CC-10-embedding-infra.md) | **Shipped** 2026-09-19 |

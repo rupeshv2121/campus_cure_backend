@@ -31,6 +31,7 @@ model User {
   facultyProfile     FacultyProfile?
   studentProfile     StudentProfile?
   notifications      Notification[]
+  refreshTokens      RefreshToken[]
 }
 
 model StudentProfile {
@@ -220,6 +221,26 @@ model Complaint {
   embeddedAt              DateTime?
   assignedTo              User?                       @relation("AssignedComplaints", fields: [assignedToId], references: [id])
   raisedBy                User                        @relation("RaisedComplaints", fields: [raisedById], references: [id])
+}
+
+/// CC-01b: a revocable session behind a short-lived access token.
+///
+/// Deliberately NOT a JWT: it carries no claims, so it cannot be inspected or
+/// trusted on its own. Its only meaning is "this row exists and is not
+/// revoked". Only the SHA-256 hash is stored, so a database leak does not hand
+/// over working sessions.
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 /// CC-12: an AI-written answer awaiting faculty review.
