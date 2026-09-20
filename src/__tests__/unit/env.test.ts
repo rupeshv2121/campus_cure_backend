@@ -65,6 +65,29 @@ describe("config/env.ts validation", () => {
     ).rejects.toThrow(/not set/i);
   });
 
+  /**
+   * The point of this one: the value is 64 characters and passes every length
+   * and entropy check. Length was never the property that mattered — secrecy
+   * was — and a warning in a chat log is not a control.
+   */
+  it("refuses a long secret that is known to have leaked", async () => {
+    await expect(
+      loadEnv({
+        DATABASE_URL: VALID_DB,
+        JWT_SECRET:
+          "zW/FE2Cgc6xii2zshC9QmQaoYQxN+eN/HEUY+ixCVcNueKOCR838jokX3nVcufhV",
+      }),
+    ).rejects.toThrow(/known to have leaked/i);
+  });
+
+  it("still accepts a fresh secret of the same length", async () => {
+    const fresh = Buffer.from(
+      Array.from({ length: 48 }, (_, i) => (i * 37 + 11) % 256),
+    ).toString("base64");
+    const env = await loadEnv({ DATABASE_URL: VALID_DB, JWT_SECRET: fresh });
+    expect(env.JWT_SECRET).toBe(fresh);
+  });
+
   it("refuses the default secret that was once committed to the repo", async () => {
     await expect(
       loadEnv({
