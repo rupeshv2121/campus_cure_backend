@@ -79,6 +79,21 @@ const ROUTES: RouteCase[] = [
   },
   // CC-15: the chatbot exposes student-scoped tools, so only students reach it.
   { method: "post", path: "/api/chat/", allow: ["STUDENT"] },
+  // CC-02: every role uploads something — students file evidence, faculty and
+  // admins attach resolution proof. What an upload may be bound to is decided
+  // at confirmation by the parent entity, not by this guard.
+  {
+    method: "post",
+    path: "/api/uploads/sign",
+    allow: ["STUDENT", "FACULTY", "ADMIN", "SUPER_ADMIN"],
+  },
+  // CC-02: reachable by any authenticated role; whether a *specific* file is
+  // readable is delegated to its parent entity and covered in uploads.test.ts.
+  {
+    method: "get",
+    path: "/api/attachments/some-id",
+    allow: ["STUDENT", "FACULTY", "ADMIN", "SUPER_ADMIN"],
+  },
 ];
 
 beforeEach(() => {

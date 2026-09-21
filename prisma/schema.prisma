@@ -32,6 +32,7 @@ model User {
   studentProfile     StudentProfile?
   notifications      Notification[]
   refreshTokens      RefreshToken[]
+  attachments        Attachment[]
 }
 
 model StudentProfile {
@@ -342,4 +343,50 @@ enum NotificationType {
   DOUBT_ACCEPTED
   ANSWER_UPVOTED
   GENERAL
+}
+
+/// CC-02. A file in Supabase Storage, and the record of what it belongs to.
+///
+/// Rows are created in PENDING when an upload is signed and only become
+/// ATTACHED once the bytes are confirmed to exist, inside the same transaction
+/// that creates the parent entity. A PENDING row is a reservation, not a file:
+/// no read path may return one, and the daily sweep removes stale ones.
+model Attachment {
+  id           String            @id @default(uuid())
+  /// Object key inside the bucket. Server-generated, never client-supplied:
+  /// a client-chosen path is a path-traversal and overwrite primitive.
+  storagePath  String            @unique
+  bucket       String
+  mimeType     String
+  sizeBytes    Int
+  originalName String
+  status       AttachmentStatus  @default(PENDING)
+  /// Null until confirmed.
+  ///
+  /// `entityId` is deliberately NOT a foreign key: four possible parents cannot
+  /// be one Prisma relation, and four nullable FK columns would make every read
+  /// path branch on which one is set. EmbeddingJob makes the same trade-off.
+  /// The cost is no cascade from the parent — the daily sweep covers it.
+  entityType   AttachmentEntity?
+  entityId     String?
+  uploadedById String
+  uploadedBy   User              @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  createdAt    DateTime          @default(now())
+  confirmedAt  DateTime?
+
+  @@index([entityType, entityId])
+  @@index([uploadedById])
+  @@index([status, createdAt])
+}
+
+enum AttachmentStatus {
+  PENDING
+  ATTACHED
+}
+
+enum AttachmentEntity {
+  DOUBT
+  ANSWER
+  COMPLAINT
+  COMPLAINT_RESOLUTION
 }
