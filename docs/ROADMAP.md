@@ -1,6 +1,6 @@
 # CampusCure Roadmap
 
-**Last updated:** 2026-08-16
+**Last updated:** 2026-09-21
 
 Every planned feature, in dependency order, with its branch. Feature IDs (`CC-NN`) are permanent and
 never reused. Effort is in ideal working days for one developer.
@@ -122,7 +122,7 @@ Mostly cheap. CC-20 through CC-22 are near-trivial and worth doing early for mor
 
 | ID | Feature | Repos | Branch | Est | Depends |
 |---|---|---|---|---|---|
-| CC-20 | Tags — `Doubt.labels[]` already exists in schema, unused. UI + filter only | both | `feat/CC-20-tags` | 1 | — |
+| CC-20 | Tags — `Doubt.labels[]` is written and displayed already; adds filtering, normalization, canonical display, vocabulary | both | `feat/CC-20-tags` | 1.5 | — |
 | CC-21 | Bookmarks — save doubts for later | both | `feat/CC-21-bookmarks` | 1 | — |
 | CC-22 | Code syntax highlighting — Shiki, read path only | frontend | `feat/CC-22-code-highlighting` | 0.5 | — |
 | CC-23 | Rich text editor — TipTap, sanitised HTML, math via KaTeX | both | `feat/CC-23-rich-text` | 4 | CC-02 |
@@ -337,6 +337,10 @@ they conflict, and resolving it after both have applied locally is genuinely pai
 | CC-13 | [Duplicate complaint detection](specs/CC-13-complaint-dedup.md) | **Shipped** 2026-09-20 — complete (13/13) |
 | CC-14 | [Structured complaint intake](specs/CC-14-complaint-intake.md) | **Shipped** 2026-09-20 — complete |
 | CC-15 | [Tool-calling chatbot](specs/CC-15-chatbot.md) | **Shipped** 2026-09-20 — complete |
+| CC-02 | [File storage layer](specs/CC-02-file-storage.md) | **Dormant** 2026-09-21 — code complete, off pending Supabase dashboard access |
+| CC-20 | [Doubt tags](specs/CC-20-tags.md) | `Draft` 2026-09-21 — needs review |
+| CC-21 | [Doubt bookmarks](specs/CC-21-bookmarks.md) | `Draft` 2026-09-21 — needs review |
+| CC-22 | [Code syntax highlighting](specs/CC-22-code-highlighting.md) | **Implemented** 2026-09-21 — pending review/merge |
 | — | [Spec template](specs/TEMPLATE.md) | — |
 
 Remaining features are specced just-in-time, one phase ahead of implementation. Writing all ~30 specs
