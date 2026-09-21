@@ -16,9 +16,15 @@ const env = vi.hoisted(() => ({
 
 const db = vi.hoisted(() => ({
   prisma: {
+    // Args and return types are declared rather than inferred: `vi.fn(async
+    // () => [])` infers never[], which makes every mockResolvedValueOnce with
+    // a real row a type error, and the call tuple empty.
     attachment: {
       create: vi.fn(),
-      findMany: vi.fn(async () => []),
+      findMany: vi.fn(
+        async (_args: { where: Record<string, unknown> }) =>
+          [] as Array<Record<string, unknown>>,
+      ),
       update: vi.fn(),
       deleteMany: vi.fn(async () => ({ count: 0 })),
       count: vi.fn(async () => 0),
@@ -98,7 +104,8 @@ describe("with storage live", () => {
 
     await listForEntities("DOUBT", ["d-1"]);
 
-    const where = db.prisma.attachment.findMany.mock.calls[0]![0].where;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where = db.prisma.attachment.findMany.mock.calls[0]![0].where as any;
     expect(where.entityType).toBe("DOUBT");
     expect(where.entityId.in).toEqual(["d-1"]);
     // A pending reservation is not a file anyone may see.
