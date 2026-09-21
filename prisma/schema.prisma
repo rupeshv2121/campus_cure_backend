@@ -423,3 +423,43 @@ model DoubtBookmark {
   @@index([userId])
   @@index([doubtId])
 }
+
+/// CC-03. An email waiting to be sent, or the record of one that was.
+///
+/// Rows are written inside the transaction that caused them and sent by a
+/// separate drain. A Vercel lambda freezes once the response is sent, so
+/// "fire and forget after res.json()" is not a thing that reliably runs -
+/// durable beats asynchronous here.
+///
+/// Mirrors EmbeddingJob on purpose. A second queue with different retry
+/// semantics is one more thing to reason about when something breaks.
+model EmailOutbox {
+  id          String      @id @default(uuid())
+  /// The real recipient, always - even when EMAIL_REDIRECT_TO diverts the
+  /// actual send elsewhere. Turning the redirect off must not need a re-send.
+  to          String
+  subject     String
+  bodyText    String
+  bodyHtml    String?
+  status      EmailStatus @default(PENDING)
+  attempts    Int         @default(0)
+  lastError   String?
+  /// Makes enqueueing idempotent. A retried handler that reuses the key
+  /// writes nothing and sends nothing twice.
+  dedupeKey   String?     @unique
+  /// Earliest the drain may claim this. Backoff pushes it forward.
+  scheduledAt DateTime    @default(now())
+  sentAt      DateTime?
+  /// Resend's id, so a delivery question can be traced at the provider.
+  providerId  String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([status, scheduledAt])
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+}

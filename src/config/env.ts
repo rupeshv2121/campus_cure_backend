@@ -238,6 +238,58 @@ export const GROUNDING_SIMILARITY_THRESHOLD = Number(
 export const CRON_SECRET = process.env.CRON_SECRET?.trim() || undefined;
 
 /* ------------------------------------------------------------------ *
+ * Email (CC-03)
+ *
+ * Optional, like storage and the AI block. Absent key => EMAIL_ENABLED is
+ * false, enqueueing is a logged no-op, and the drain returns zeroes without
+ * touching the table. An email layer that half-works is worse than one that is
+ * off: a queued message nobody drains looks delivered to the code that queued
+ * it.
+ * ------------------------------------------------------------------ */
+
+/** Read only inside src/services/email/resend.ts. Never returned in a response. */
+export const RESEND_API_KEY = process.env.RESEND_API_KEY?.trim() || undefined;
+
+export const EMAIL_ENABLED = Boolean(RESEND_API_KEY);
+
+/**
+ * Sender address.
+ *
+ * `onboarding@resend.dev` is the only sender Resend allows before a domain is
+ * verified through DNS. Changing this without verifying the domain first makes
+ * every send fail, not fall back.
+ */
+export const EMAIL_FROM =
+  process.env.EMAIL_FROM?.trim() || "CampusCure <onboarding@resend.dev>";
+
+/**
+ * Divert every email to one address.
+ *
+ * THIS IS A SAFETY CATCH, NOT A CONVENIENCE. There are real students in this
+ * database with real addresses. Until a domain is verified, Resend will only
+ * deliver to the account owner anyway - but the moment it IS verified, an
+ * untested drain would mail all of them. Leave this set until the emails
+ * themselves (CC-40) have been reviewed.
+ *
+ * The outbox row always records the true recipient, so switching this off is a
+ * config change rather than a re-send.
+ */
+export const EMAIL_REDIRECT_TO =
+  process.env.EMAIL_REDIRECT_TO?.trim() || undefined;
+
+/** Attempts before a message is parked as FAILED. */
+export const EMAIL_MAX_ATTEMPTS = Number(process.env.EMAIL_MAX_ATTEMPTS ?? 5);
+
+/** Messages sent per drain. Bounded so one drain cannot exhaust a daily quota. */
+export const EMAIL_DRAIN_BATCH_SIZE = Number(
+  process.env.EMAIL_DRAIN_BATCH_SIZE ?? 20,
+);
+
+if (!Number.isInteger(EMAIL_MAX_ATTEMPTS) || EMAIL_MAX_ATTEMPTS <= 0) {
+  fatal("EMAIL_MAX_ATTEMPTS must be a positive integer.");
+}
+
+/* ------------------------------------------------------------------ *
  * File storage (CC-02)
  *
  * Optional, like the AI block above.

@@ -6,6 +6,11 @@ import { runEmbeddingDrain } from "../services/ai/embeddingWorker.js";
 import { runDraftGeneration } from "../services/ai/answerDraft.js";
 import { purgeExpiredRefreshTokens } from "../services/auth/refreshTokens.js";
 import { sweepAttachments } from "../services/storage/attachments.js";
+import {
+  enqueueEmail,
+  getEmailStats,
+  runEmailDrain,
+} from "../services/email/outbox.js";
 
 const router = Router();
 
@@ -100,6 +105,80 @@ const draftHandler = async (req: Request, res: Response): Promise<void> => {
 router.post("/drafts/generate", draftHandler);
 router.get("/drafts/generate", draftHandler);
 
+/* ------------------------------------------------------------------ *
+ * CC-03: email outbox
+ * ------------------------------------------------------------------ */
+
+/** Send whatever is due. Also reachable from cron, below. */
+const emailDrainHandler = async (req: Request, res: Response): Promise<void> => {
+  if (!requireInternalSecret(req, res)) return;
+
+  try {
+    res.json(await runEmailDrain());
+  } catch (error) {
+    console.error("[internal] email drain failed:", error);
+    res.status(500).json({ error: "Email drain failed" });
+  }
+};
+
+router.post("/email/drain", emailDrainHandler);
+router.get("/email/drain", emailDrainHandler);
+
+/** Queue health: what is waiting, and what never went out and why. */
+router.get("/email/stats", async (req: Request, res: Response) => {
+  if (!requireInternalSecret(req, res)) return;
+
+  try {
+    res.json(await getEmailStats());
+  } catch (error) {
+    console.error("[internal] email stats failed:", error);
+    res.status(500).json({ error: "Email stats failed" });
+  }
+});
+
+/**
+ * Send one test message.
+ *
+ * Exists so the pipe can be exercised end to end before any feature depends on
+ * it - CC-40 owns the real emails. Behind the shared secret like everything
+ * else here, because an open "send mail to an address of your choosing"
+ * endpoint is an open relay.
+ */
+router.post("/email/test", async (req: Request, res: Response) => {
+  if (!requireInternalSecret(req, res)) return;
+
+  try {
+    const to = typeof req.body?.to === "string" ? req.body.to : "";
+
+    const queued = await enqueueEmail({
+      to,
+      subject: "CampusCure email test (CC-03)",
+      text: [
+        "If you are reading this, the outbox, the drain and the Resend",
+        "integration all work.",
+        "",
+        "No feature sends email yet - that is CC-40.",
+      ].join("\n"),
+      // Timestamped on purpose: a test SHOULD be repeatable, unlike a real
+      // notification, so this key is the one place a timestamp belongs.
+      dedupeKey: `test:${Date.now()}`,
+    });
+
+    if (!queued.queued) {
+      res.status(400).json({ error: `Not queued: ${queued.reason}` });
+      return;
+    }
+
+    // Awaited rather than backgrounded so the response reports the real
+    // outcome - the whole point of the endpoint is to find out.
+    const drain = await runEmailDrain();
+    res.json({ queued, drain, stats: await getEmailStats() });
+  } catch (error) {
+    console.error("[internal] email test failed:", error);
+    res.status(500).json({ error: "Email test failed" });
+  }
+});
+
 /**
  * One daily job doing all the scheduled work.
  *
@@ -134,6 +213,10 @@ const dailyHandler = async (req: Request, res: Response): Promise<void> => {
   // CC-02: unconfirmed uploads and files whose parent was deleted. Objects are
   // billable whether or not anything points at them, so this runs nightly.
   await step("sweptAttachments", () => sweepAttachments());
+  // CC-03: the floor on retry latency, not the mechanism. Mail is normally
+  // sent by the opportunistic drain within a second of being queued; this
+  // catches anything left PENDING because a lambda froze mid-drain.
+  await step("emails", () => runEmailDrain());
 
   res.json(results);
 };
