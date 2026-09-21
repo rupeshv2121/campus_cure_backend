@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | **Implemented 2026-09-21** — migration NOT applied; pending review/merge |
 | **Phase** | 2 |
 | **Branch** | `feat/CC-21-bookmarks` |
 | **Repos** | both |
@@ -132,6 +132,25 @@ against.
 10. `/doubts/bookmarked` resolves to the list, not to `getDoubtById("bookmarked")`.
 11. `/student/doubts/saved` in the browser renders the saved page, not the detail page.
 12. A failed toggle rolls the optimistic UI back.
+
+## Implementation notes 2026-09-21
+
+Built. 16 route tests in `src/__tests__/unit/bookmarks.test.ts`, plus four rows in the
+authz matrix.
+
+**The migration has not been run.** `prisma/migrations/20260921120000_cc21_add_doubt_bookmark`
+creates the table but has not been applied anywhere.
+
+Because of that, the read paths tolerate the table being absent: `readBookmarkedIds`
+returns an empty set on the missing-table error rather than throwing, so the doubt feed
+and detail page keep working with every doubt simply showing as unsaved. This mirrors
+the tolerance the existing upvote read already has for the same reason. The *write*
+paths do not pretend — saving a doubt before the migration runs will error, which is
+correct: silently discarding a save is worse than failing.
+
+Criterion 9 (deleting a doubt removes its bookmarks) is enforced by `ON DELETE CASCADE`
+in the migration and is not covered by a test — the mocked Prisma client cannot
+demonstrate a database-level cascade. It needs the Tier 2 harness or a manual check.
 
 ## Test plan
 

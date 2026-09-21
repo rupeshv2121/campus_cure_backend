@@ -79,6 +79,28 @@ const ROUTES: RouteCase[] = [
   },
   // CC-15: the chatbot exposes student-scoped tools, so only students reach it.
   { method: "post", path: "/api/chat/", allow: ["STUDENT"] },
+  // CC-20/CC-21: the doubt community is students and faculty, matching the
+  // roles already granted on upvoteDoubt. Admins do not take part in it.
+  {
+    method: "get",
+    path: "/api/students/doubts/tags",
+    allow: ["STUDENT", "FACULTY"],
+  },
+  {
+    method: "get",
+    path: "/api/students/doubts/bookmarked",
+    allow: ["STUDENT", "FACULTY"],
+  },
+  {
+    method: "post",
+    path: "/api/students/doubts/x/bookmark",
+    allow: ["STUDENT", "FACULTY"],
+  },
+  {
+    method: "delete",
+    path: "/api/students/doubts/x/bookmark",
+    allow: ["STUDENT", "FACULTY"],
+  },
   // CC-02: every role uploads something — students file evidence, faculty and
   // admins attach resolution proof. What an upload may be bound to is decided
   // at confirmation by the parent entity, not by this guard.
