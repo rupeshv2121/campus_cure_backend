@@ -1131,6 +1131,10 @@ export const getDoubtById = async (
                 name: true,
                 userID: true,
                 role: true,
+                // CC-25: shown beside the author, which is where reputation
+                // actually does its job - a leaderboard nobody opens does not
+                // help a reader judge an answer.
+                reputation: true,
                 facultyProfile: {
                   select: {
                     department: true,
@@ -1151,6 +1155,10 @@ export const getDoubtById = async (
                 name: true,
                 userID: true,
                 role: true,
+                // CC-25: shown beside the author, which is where reputation
+                // actually does its job - a leaderboard nobody opens does not
+                // help a reader judge an answer.
+                reputation: true,
               },
             },
           },
@@ -1769,6 +1777,7 @@ export const postAnswer = async (
               name: true,
               userID: true,
               role: true,
+              reputation: true,
               studentProfile: {
                 select: {
                   semester: true,
@@ -1783,6 +1792,7 @@ export const postAnswer = async (
               name: true,
               userID: true,
               role: true,
+              reputation: true,
             },
           },
         },
