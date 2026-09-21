@@ -5,6 +5,7 @@ import { getEmbeddingStats } from "../repositories/embeddingRepository.js";
 import { runEmbeddingDrain } from "../services/ai/embeddingWorker.js";
 import { runDraftGeneration } from "../services/ai/answerDraft.js";
 import { purgeExpiredRefreshTokens } from "../services/auth/refreshTokens.js";
+import { sweepAttachments } from "../services/storage/attachments.js";
 
 const router = Router();
 
@@ -130,6 +131,9 @@ const dailyHandler = async (req: Request, res: Response): Promise<void> => {
   await step("purgedRefreshTokens", async () => ({
     deleted: await purgeExpiredRefreshTokens(),
   }));
+  // CC-02: unconfirmed uploads and files whose parent was deleted. Objects are
+  // billable whether or not anything points at them, so this runs nightly.
+  await step("sweptAttachments", () => sweepAttachments());
 
   res.json(results);
 };

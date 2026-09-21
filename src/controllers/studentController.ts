@@ -1,4 +1,10 @@
-import { ApprovalStatus, DoubtStatus, Prisma, Role } from "@prisma/client";
+import {
+  ApprovalStatus,
+  AttachmentEntity,
+  DoubtStatus,
+  Prisma,
+  Role,
+} from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
 import { hybridSearchDoubts } from "../services/search/hybridSearch.js";
@@ -12,6 +18,11 @@ import {
   triggerDrainInBackground,
 } from "../services/ai/embeddingWorker.js";
 import type { AuthRequest, RejectionHistoryEntry } from "../types/index.js";
+import {
+  AttachmentError,
+  confirmAttachments,
+  listForEntities,
+} from "../services/storage/attachments.js";
 import {
   createNotification,
   notifyComplaintStatusChange,
@@ -368,8 +379,15 @@ export const raiseComplaint = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const { title, description, category, priority, classroomNumber, block } =
-      req.body;
+    const {
+      title,
+      description,
+      category,
+      priority,
+      classroomNumber,
+      block,
+      attachmentIds,
+    } = req.body;
 
     if (
       !title ||
@@ -400,9 +418,13 @@ export const raiseComplaint = async (
       block,
     });
 
-    // Create complaint and update student profile counters in a transaction
-    const [complaint] = await prisma.$transaction([
-      prisma.complaint.create({
+    // Create complaint and update student profile counters in a transaction.
+    //
+    // CC-02: interactive rather than the array form, because confirming
+    // attachments needs the complaint's id and must commit with it. A complaint
+    // that fails to write must not leave files claiming to belong to it.
+    const complaint = await prisma.$transaction(async (tx) => {
+      const created = await tx.complaint.create({
         data: {
           title,
           description,
@@ -412,15 +434,28 @@ export const raiseComplaint = async (
           block,
           raisedBy: { connect: { id: req.user!.id } },
         },
-      }),
-      prisma.studentProfile.update({
+      });
+
+      await tx.studentProfile.update({
         where: { userId: req.user!.id },
         data: {
           totalComplaints: { increment: 1 },
           totalActiveComplaints: { increment: 1 },
         },
-      }),
-    ]);
+      });
+
+      if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
+        await confirmAttachments({
+          attachmentIds,
+          entityType: AttachmentEntity.COMPLAINT,
+          entityId: created.id,
+          userId: req.user!.id,
+          tx,
+        });
+      }
+
+      return created;
+    });
 
     // CC-13: queue for embedding so this complaint can be matched against
     // future reports. Never inline - an AI outage must not block filing.
@@ -432,6 +467,14 @@ export const raiseComplaint = async (
       complaint,
     });
   } catch (error) {
+    // CC-02: a rejected attachment is the student's problem to fix (wrong file,
+    // upload never finished), not a server fault. The transaction has already
+    // rolled back, so no complaint was filed.
+    if (error instanceof AttachmentError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+
     console.error("Error raising complaint:", error);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -568,7 +611,28 @@ export const getComplaints = async (
       orderBy: { createdAt: "desc" },
     });
 
-    res.json({ complaints });
+    // CC-02: evidence photos, batched into one query rather than one per
+    // complaint. No signed URLs here — those are minted per view by
+    // GET /api/attachments/:id, because a URL baked into this list would be
+    // expired by the time anyone clicked it.
+    const attachments = await listForEntities(
+      AttachmentEntity.COMPLAINT,
+      complaints.map((complaint) => complaint.id),
+    );
+
+    res.json({
+      complaints: complaints.map((complaint) => ({
+        ...complaint,
+        attachments: (attachments.get(complaint.id) ?? []).map(
+          ({ id, mimeType, originalName, sizeBytes }) => ({
+            id,
+            mimeType,
+            originalName,
+            sizeBytes,
+          }),
+        ),
+      })),
+    });
   } catch (e) {
     console.error("Error fetching complaints:", e);
     res.status(500).json({ error: "Internal server error" });

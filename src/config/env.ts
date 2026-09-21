@@ -237,6 +237,89 @@ export const GROUNDING_SIMILARITY_THRESHOLD = Number(
 /** Set by Vercel Cron, which sends it as `Authorization: Bearer <secret>`. */
 export const CRON_SECRET = process.env.CRON_SECRET?.trim() || undefined;
 
+/* ------------------------------------------------------------------ *
+ * File storage (CC-02)
+ *
+ * Optional, like the AI block above.
+ *
+ * An earlier revision made these required, on the reasoning that a
+ * half-configured upload path loses a student's file. That reasoning is right
+ * about the *upload* and wrong about the *process*: refusing to boot means a
+ * developer with no storage credentials cannot run doubts, complaints or
+ * anything else either. The failure is contained where it belongs instead —
+ * STORAGE_ENABLED is false, the two upload routes answer 503, and every read
+ * path behaves as though no file was ever attached.
+ *
+ * Both values must be present for storage to switch on. One without the other
+ * is a misconfiguration, not a half-working feature.
+ * ------------------------------------------------------------------ */
+
+export const SUPABASE_URL = process.env.SUPABASE_URL?.trim() || undefined;
+
+/**
+ * The service role key bypasses row level security, so it is a full-access
+ * credential for the storage bucket. It is read here, used only inside
+ * src/services/storage/supabaseStorage.ts, and must never be returned in a
+ * response or shipped to the browser — the whole point of signing uploads
+ * server-side is that the client never needs it.
+ */
+export const SUPABASE_SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || undefined;
+
+/**
+ * Master switch. Everything attachment-related checks this first.
+ *
+ * Note this says nothing about whether the bucket exists or the `Attachment`
+ * table has been migrated — it only reports that credentials are present. The
+ * storage module surfaces the rest as ordinary errors.
+ */
+export const STORAGE_ENABLED = Boolean(
+  SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY,
+);
+
+export const SUPABASE_STORAGE_BUCKET =
+  process.env.SUPABASE_STORAGE_BUCKET?.trim() || "campuscure-attachments";
+
+/**
+ * Hard ceiling on one attachment, enforced twice: once against the size the
+ * client claims at signing time, and again against the object's real size at
+ * confirmation. The first is a courtesy that fails fast; the second is the
+ * one that actually holds, because a client can lie.
+ */
+export const ATTACHMENT_MAX_BYTES = Number(
+  process.env.ATTACHMENT_MAX_BYTES ?? 5 * 1024 * 1024,
+);
+
+export const ATTACHMENT_MAX_PER_ENTITY = Number(
+  process.env.ATTACHMENT_MAX_PER_ENTITY ?? 5,
+);
+
+/** How long a signed upload URL stays valid. */
+export const UPLOAD_URL_TTL_SECONDS = Number(
+  process.env.UPLOAD_URL_TTL_SECONDS ?? 300,
+);
+
+/** How long a signed download URL stays valid. Short: these get screenshotted. */
+export const DOWNLOAD_URL_TTL_SECONDS = Number(
+  process.env.DOWNLOAD_URL_TTL_SECONDS ?? 300,
+);
+
+/** Hours a PENDING attachment may sit unconfirmed before the sweep removes it. */
+export const ATTACHMENT_PENDING_TTL_HOURS = Number(
+  process.env.ATTACHMENT_PENDING_TTL_HOURS ?? 24,
+);
+
+if (!Number.isInteger(ATTACHMENT_MAX_BYTES) || ATTACHMENT_MAX_BYTES <= 0) {
+  fatal("ATTACHMENT_MAX_BYTES must be a positive integer.");
+}
+
+if (
+  !Number.isInteger(ATTACHMENT_MAX_PER_ENTITY) ||
+  ATTACHMENT_MAX_PER_ENTITY <= 0
+) {
+  fatal("ATTACHMENT_MAX_PER_ENTITY must be a positive integer.");
+}
+
 if (!Number.isInteger(EMBEDDING_DIMENSIONS) || EMBEDDING_DIMENSIONS <= 0) {
   fatal(`EMBEDDING_DIMENSIONS must be a positive integer.`);
 }

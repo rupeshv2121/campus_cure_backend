@@ -103,6 +103,31 @@ export const chatLimiter = rateLimit({
 });
 
 /**
+ * Upload signing (CC-02).
+ *
+ * Signing is cheap for us and expensive later: every signed URL is a licence to
+ * write an object we then store and pay for. Metered per user rather than per
+ * IP because a shared campus address must not let one abuser exhaust everyone's
+ * budget — and because an unauthenticated caller cannot reach this route at all.
+ *
+ * 20/minute comfortably covers attaching the per-entity maximum several times
+ * over, while bounding how fast one account can fill the bucket.
+ */
+export const uploadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => {
+    const userId = userIdFromToken(req);
+    return userId ? `upload:${userId}` : ipKey(req);
+  },
+  message: {
+    error: "Too many uploads. Please wait a moment and try again.",
+  },
+});
+
+/**
  * Blanket limit for the whole API. Keyed by user id where possible so that many
  * students behind one campus NAT address are metered individually.
  */
