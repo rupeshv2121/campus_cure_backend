@@ -53,6 +53,14 @@ model User {
   faceChallenges     FaceChallenge[]
   consentRecords     ConsentRecord[]
   reputationEvents   ReputationEvent[]
+  /// CC-42. Set once the user has messaged the bot with their link code.
+  /// Telegram will not let a bot message someone who has not messaged it
+  /// first, which makes opt-in structural rather than a checkbox.
+  telegramChatId     String?
+  /// SHA-256 of the linking code, never the code. Possession of the database
+  /// must not be possession of a credential - same reasoning as CC-01b.
+  telegramLinkHash   String?
+  telegramLinkExpiry DateTime?
   /// CC-25. Denormalised total. ReputationEvent is the truth - this exists so
   /// a leaderboard is one indexed sort rather than an aggregate over a ledger.
   reputation         Int               @default(0)
@@ -474,27 +482,34 @@ model DoubtBookmark {
 ///
 /// Mirrors EmbeddingJob on purpose. A second queue with different retry
 /// semantics is one more thing to reason about when something breaks.
+/// CC-42. Despite the name this is now a MESSAGE outbox: `channel` decides
+/// which provider the drain hands a row to. Renaming a table that holds live
+/// rows, for cosmetics, mid-project, is a worse trade than a name that is
+/// slightly wrong.
 model EmailOutbox {
-  id          String      @id @default(uuid())
+  id          String         @id @default(uuid())
+  /// Which provider sends this. `to` is an email address for EMAIL and a
+  /// Telegram chat id for TELEGRAM - an opaque recipient handle either way.
+  channel     MessageChannel @default(EMAIL)
   /// The real recipient, always - even when EMAIL_REDIRECT_TO diverts the
   /// actual send elsewhere. Turning the redirect off must not need a re-send.
   to          String
   subject     String
   bodyText    String
   bodyHtml    String?
-  status      EmailStatus @default(PENDING)
-  attempts    Int         @default(0)
+  status      EmailStatus    @default(PENDING)
+  attempts    Int            @default(0)
   lastError   String?
   /// Makes enqueueing idempotent. A retried handler that reuses the key
   /// writes nothing and sends nothing twice.
-  dedupeKey   String?     @unique
+  dedupeKey   String?        @unique
   /// Earliest the drain may claim this. Backoff pushes it forward.
-  scheduledAt DateTime    @default(now())
+  scheduledAt DateTime       @default(now())
   sentAt      DateTime?
   /// Resend's id, so a delivery question can be traced at the provider.
   providerId  String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 
   @@index([status, scheduledAt])
 }
@@ -615,4 +630,9 @@ model ReputationEvent {
   /// a second row.
   @@unique([userId, reason, sourceType, sourceId, actorId])
   @@index([userId, createdAt])
+}
+
+enum MessageChannel {
+  EMAIL
+  TELEGRAM
 }
