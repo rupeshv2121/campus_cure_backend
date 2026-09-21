@@ -2,6 +2,7 @@ import { Role } from "@prisma/client";
 import { Router } from "express";
 import {
   approveUser,
+  getAuditLog,
   assignComplaint,
   createAdminProfile,
   getAdminProfile,
@@ -236,6 +237,18 @@ router.post(
   authenticate,
   authorize(Role.SUPER_ADMIN),
   markComplaintAsHandled,
+);
+
+/**
+ * CC-61: the audit trail. SUPER_ADMIN only - most entries are about admin
+ * behaviour, and a trail the audited party can read is one they can learn to
+ * work around.
+ */
+router.get(
+  "/audit-log",
+  authenticate,
+  authorize(Role.SUPER_ADMIN),
+  getAuditLog,
 );
 
 export default router;

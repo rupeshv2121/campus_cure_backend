@@ -15,6 +15,11 @@ import {
 } from "../utils/complaintAssignmentHistory.js";
 import { computeSlaDueAt } from "../services/sla/policy.js";
 import {
+  AuditAction,
+  auditFromRequest,
+  queryAuditLog,
+} from "../services/audit/auditLog.js";
+import {
   createNotification,
   notifyComplaintAssignment,
   notifyComplaintStatusChange,
@@ -375,6 +380,14 @@ export const approveUser = async (
       });
     }
 
+    await auditFromRequest(req, {
+      action: AuditAction.USER_APPROVE,
+      targetType: "User",
+      targetId: userId,
+      summary: `Approved ${updatedUser.role} account ${updatedUser.userID}`,
+      metadata: { role: updatedUser.role, email: updatedUser.email },
+    });
+
     res.json({ message: "User approved successfully", user: updatedUser });
   } catch (error) {
     console.error("Approve user error:", error);
@@ -426,6 +439,14 @@ export const rejectUser = async (
         },
       });
     }
+
+    await auditFromRequest(req, {
+      action: AuditAction.USER_REJECT,
+      targetType: "User",
+      targetId: updatedUser.id,
+      summary: `Rejected ${updatedUser.role} account ${updatedUser.userID}`,
+      metadata: { role: updatedUser.role, email: updatedUser.email },
+    });
 
     res.json({ message: "User rejected successfully", user: updatedUser });
   } catch (error) {
@@ -939,6 +960,18 @@ export const assignComplaint = async (
       // Don't fail the request if notifications fail
     }
 
+    await auditFromRequest(req, {
+      action: AuditAction.COMPLAINT_ASSIGN,
+      targetType: "Complaint",
+      targetId: complaintId,
+      summary: `Assigned complaint "${complaint.title}" to ${faculty.name}`,
+      metadata: {
+        assigneeId: facultyId,
+        previousAssigneeId: complaint.assignedTo?.id ?? null,
+        priority: complaint.priority,
+      },
+    });
+
     res.json({ message: "Complaint assigned successfully" });
   } catch (error) {
     console.error("Assign complaint error:", error);
@@ -1108,6 +1141,14 @@ export const updateComplaintStatus = async (
       });
     }
 
+    await auditFromRequest(req, {
+      action: AuditAction.COMPLAINT_STATUS_CHANGE,
+      targetType: "Complaint",
+      targetId: complaintId,
+      summary: `Complaint status ${complaint.status} -> ${status}`,
+      metadata: { from: complaint.status, to: status },
+    });
+
     res.json({ message: "Complaint status updated successfully" });
   } catch (error) {
     console.error("Update complaint status error:", error);
@@ -1169,6 +1210,14 @@ export const toggleUserActiveStatus = async (
         },
       });
     }
+
+    await auditFromRequest(req, {
+      action: AuditAction.USER_ACTIVE_TOGGLE,
+      targetType: "User",
+      targetId: userId,
+      summary: `${isActive ? "Activated" : "Deactivated"} ${updatedUser.role} ${updatedUser.userID}`,
+      metadata: { isActive, role: updatedUser.role },
+    });
 
     res.json({
       message: `User ${isActive ? "activated" : "deactivated"} successfully`,
@@ -1236,6 +1285,18 @@ export const updateUserApprovalStatus = async (
         },
       });
     }
+
+    await auditFromRequest(req, {
+      action: AuditAction.USER_APPROVAL_STATUS_CHANGE,
+      targetType: "User",
+      targetId: userId,
+      summary: `Set ${updatedUser.userID} approval to ${approvalStatus}`,
+      metadata: {
+        from: userToUpdate.approvalStatus,
+        to: approvalStatus,
+        role: updatedUser.role,
+      },
+    });
 
     res.json({
       message: "User approval status updated successfully",
@@ -1438,6 +1499,19 @@ export const updateSuperAdminSettings = async (
 
     await setDoubtSubjectsByUserId(req.user!.id, sanitizedDoubtSubjects);
 
+    // Policy change: this decides what every student may file a complaint
+    // about, and which subjects a doubt can be posted under.
+    await auditFromRequest(req, {
+      action: AuditAction.SETTINGS_UPDATE,
+      targetType: "Settings",
+      summary: "Updated campus-wide posting settings",
+      metadata: {
+        departments: profile.assignedDepartments,
+        allowedCategories: profile.allowedCategories,
+        doubtSubjects: sanitizedDoubtSubjects,
+      },
+    });
+
     res.json({
       message: "Settings updated successfully",
       settings: {
@@ -1520,6 +1594,17 @@ export const updateAdminPermissions = async (
           select: { id: true, name: true, email: true },
         },
       },
+    });
+
+    // The highest-value entry in the whole table: this is how an admin
+    // becomes a more powerful admin. CC-01c exists because that path was
+    // once open to the internet.
+    await auditFromRequest(req, {
+      action: AuditAction.ADMIN_PERMISSIONS_CHANGE,
+      targetType: "AdminProfile",
+      targetId: adminProfileId,
+      summary: `Changed admin permissions for ${updated.user?.email ?? adminProfileId}`,
+      metadata: { changed: data },
     });
 
     res.json({ profile: updated });
@@ -1787,6 +1872,18 @@ export const reassignEscalatedComplaint = async (
       });
     }
 
+    await auditFromRequest(req, {
+      action: AuditAction.COMPLAINT_REASSIGN,
+      targetType: "Complaint",
+      targetId: complaintId,
+      summary: `Super Admin reassigned "${complaint.title}" to ${faculty.name}`,
+      metadata: {
+        assigneeId: facultyId,
+        previousAssigneeId: complaint.assignedToId ?? null,
+        escalationCount: complaint.escalationCount,
+      },
+    });
+
     // Send notifications
     try {
       // Notify the student
@@ -1898,6 +1995,46 @@ export const getComplaintDuplicateClusters = async (
     });
   } catch (error) {
     console.error("Error building duplicate clusters:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * CC-61: read the audit trail.
+ *
+ * SUPER_ADMIN only, deliberately. Most entries in this table are about admin
+ * behaviour, and a trail the audited party can read is one they can learn to
+ * work around.
+ */
+export const getAuditLog = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const asString = (value: unknown): string | undefined =>
+      typeof value === "string" && value.trim() ? value.trim() : undefined;
+
+    const asDate = (value: unknown): Date | undefined => {
+      const raw = asString(value);
+      if (!raw) return undefined;
+      const parsed = new Date(raw);
+      return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+    };
+
+    const result = await queryAuditLog({
+      action: asString(req.query.action),
+      actorId: asString(req.query.actorId),
+      targetType: asString(req.query.targetType),
+      targetId: asString(req.query.targetId),
+      from: asDate(req.query.from),
+      to: asDate(req.query.to),
+      page: Number(req.query.page) || 1,
+      pageSize: Number(req.query.pageSize) || 50,
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error("Get audit log error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

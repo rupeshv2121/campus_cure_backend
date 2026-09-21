@@ -20,6 +20,11 @@ import {
   SLA_SWEEP_BATCH_SIZE,
 } from "../../config/env.js";
 import { createNotification } from "../../utils/notifications.js";
+import {
+  AuditAction,
+  recordAudit,
+  systemActor,
+} from "../audit/auditLog.js";
 import { clockFor, computeSlaDueAt, hoursOverdue } from "./policy.js";
 
 export interface SweepResult {
@@ -180,6 +185,24 @@ const escalate = async (
     });
     if (!ok) result.errors += 1;
   }
+
+  // CC-61: nobody is logged in here. Without a SYSTEM actor this action is
+  // either unattributable or falsely attributed to whoever triggered the cron.
+  await recordAudit({
+    ...systemActor(),
+    action: AuditAction.COMPLAINT_ESCALATE,
+    targetType: "Complaint",
+    targetId: complaint.id,
+    summary: toSuperAdmin
+      ? `SLA breach escalated "${complaint.title}" to Super Admin`
+      : `SLA breach on "${complaint.title}", ${overdueBy}h overdue`,
+    metadata: {
+      escalationCount,
+      overdueHours: overdueBy,
+      fromStatus: complaint.status,
+      toSuperAdmin,
+    },
+  });
 
   result.escalated += 1;
   if (toSuperAdmin) result.escalatedToSuperAdmin += 1;
