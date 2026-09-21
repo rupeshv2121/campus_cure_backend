@@ -2,14 +2,14 @@
 
 | | |
 |---|---|
-| **Status** | **Implemented 2026-09-21** — migration NOT applied; pending review/merge |
+| **Status** | **Shipped 2026-09-21** — migration applied |
 | **Phase** | 2 |
 | **Branch** | `feat/CC-21-bookmarks` |
 | **Repos** | both |
 | **Depends on** | none |
 | **Blocks** | nothing |
 | **Estimate** | 1 day |
-| **Shipped** | — |
+| **Shipped** | 2026-09-21 |
 
 ## Problem
 
@@ -138,15 +138,14 @@ against.
 Built. 16 route tests in `src/__tests__/unit/bookmarks.test.ts`, plus four rows in the
 authz matrix.
 
-**The migration has not been run.** `prisma/migrations/20260921120000_cc21_add_doubt_bookmark`
-creates the table but has not been applied anywhere.
+**Migration applied 2026-09-21** via `prisma migrate deploy`.
 
-Because of that, the read paths tolerate the table being absent: `readBookmarkedIds`
-returns an empty set on the missing-table error rather than throwing, so the doubt feed
-and detail page keep working with every doubt simply showing as unsaved. This mirrors
-the tolerance the existing upvote read already has for the same reason. The *write*
-paths do not pretend — saving a doubt before the migration runs will error, which is
-correct: silently discarding a save is worse than failing.
+The read paths still tolerate the table being absent: `readBookmarkedIds` returns an
+empty set on the missing-table error rather than throwing, so a environment that has
+the code but not the migration shows every doubt as unsaved instead of failing the
+whole feed. That mirrors the tolerance the existing upvote read already has. The
+*write* paths deliberately do not pretend — saving would error, because silently
+discarding a save is worse than failing.
 
 Criterion 9 (deleting a doubt removes its bookmarks) is enforced by `ON DELETE CASCADE`
 in the migration and is not covered by a test — the mocked Prisma client cannot
