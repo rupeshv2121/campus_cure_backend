@@ -128,43 +128,47 @@ model AdminProfile {
 }
 
 model Doubt {
-  id               String                      @id @default(uuid())
-  title            String
-  description      String
-  semester         Int
-  subject          String
+  id                String                      @id @default(uuid())
+  title             String
+  description       String
+  /// CC-23. TEXT rows predate the editor and render through CC-22's plain-text
+  /// path. Branching on this column rather than sniffing the content matters:
+  /// "does it start with <" is wrong for anyone who legitimately types one.
+  descriptionFormat ContentFormat               @default(TEXT)
+  semester          Int
+  subject           String
   /// As the author typed it. Never overwritten and never rendered directly:
   /// display goes through the vocabulary's canonical casing (CC-20).
-  labels           String[]
+  labels            String[]
   /// CC-20. Derived from `labels` on every write. Never user-supplied, never
   /// rendered: it is the lookup key that filtering, aggregation and canonical
   /// display all match on. `labels` remains the source of truth - if the two
   /// ever disagree, `labels` is right and this is stale.
-  labelsNormalized String[]                    @default([])
-  postedById       String
-  status           DoubtStatus                 @default(OPEN)
-  views            Int                         @default(0)
-  upVoteCount      Int                         @default(0)
-  answerCount      Int                         @default(0)
-  acceptedAnswerId String?
-  edited           Boolean                     @default(false)
-  createdAt        DateTime                    @default(now())
-  updatedAt        DateTime                    @updatedAt
-  editHistory      Json                        @default("[]")
+  labelsNormalized  String[]                    @default([])
+  postedById        String
+  status            DoubtStatus                 @default(OPEN)
+  views             Int                         @default(0)
+  upVoteCount       Int                         @default(0)
+  answerCount       Int                         @default(0)
+  acceptedAnswerId  String?
+  edited            Boolean                     @default(false)
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+  editHistory       Json                        @default("[]")
   /// CC-10. Prisma has no native vector type, so this is invisible to the typed
   /// client: all reads and writes go through src/repositories/embeddingRepository.ts.
   /// NEVER select this implicitly - it is ~1.5KB per row.
-  embedding        Unsupported("vector(384)")?
+  embedding         Unsupported("vector(384)")?
   /// The model that produced `embedding`. Vectors from different models are not
   /// comparable, so a model change is a detectable backfill, not silent corruption.
-  embeddingModel   String?
-  embeddingVersion Int                         @default(1)
-  embeddedAt       DateTime?
-  answers          Answer[]
-  postedBy         User                        @relation(fields: [postedById], references: [id])
-  doubtViews       DoubtView[]
-  doubtUpvotes     DoubtUpvote[]
-  doubtBookmarks   DoubtBookmark[]
+  embeddingModel    String?
+  embeddingVersion  Int                         @default(1)
+  embeddedAt        DateTime?
+  answers           Answer[]
+  postedBy          User                        @relation(fields: [postedById], references: [id])
+  doubtViews        DoubtView[]
+  doubtUpvotes      DoubtUpvote[]
+  doubtBookmarks    DoubtBookmark[]
 
   @@index([labelsNormalized], type: Gin)
 }
@@ -173,6 +177,8 @@ model Answer {
   id             String         @id @default(uuid())
   doubtId        String
   content        String
+  /// CC-23. See Doubt.descriptionFormat.
+  contentFormat  ContentFormat  @default(TEXT)
   answeredById   String
   approvalStatus ApprovalStatus @default(APPROVED)
   upvotes        Int            @default(0)
@@ -635,4 +641,11 @@ model ReputationEvent {
 enum MessageChannel {
   EMAIL
   TELEGRAM
+}
+
+/// CC-23. Not a migration target: plain text is a perfectly good format, and
+/// the chatbot and the AI draft generator both write it programmatically.
+enum ContentFormat {
+  TEXT
+  HTML
 }
