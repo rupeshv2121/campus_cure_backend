@@ -5,6 +5,10 @@ import { generateDraftForDoubt } from "../services/ai/answerDraft.js";
 import type { AuthRequest } from "../types/index.js";
 import { computeSlaDueAt } from "../services/sla/policy.js";
 import {
+  ReputationReason,
+  awardReputation,
+} from "../services/reputation/reputation.js";
+import {
   notifyComplaintStatusChange,
   notifyDoubtAnswer,
 } from "../utils/notifications.js";
@@ -655,6 +659,18 @@ export const moderateAnswer = async (
         },
       },
     });
+
+    // CC-25: small on purpose - passing moderation is a floor, not an
+    // achievement. The points that matter come from other students.
+    if (approvalStatus === ApprovalStatus.APPROVED) {
+      await awardReputation({
+        userId: updatedAnswer.answeredBy.id,
+        reason: ReputationReason.ANSWER_APPROVED,
+        sourceType: "Answer",
+        sourceId: updatedAnswer.id,
+        actorId: req.user!.id,
+      });
+    }
 
     // Send notification to doubt creator only when answer is approved
     try {

@@ -290,6 +290,26 @@ if (!Number.isInteger(EMAIL_MAX_ATTEMPTS) || EMAIL_MAX_ATTEMPTS <= 0) {
 }
 
 /* ------------------------------------------------------------------ *
+ * Reputation (CC-25)
+ * ------------------------------------------------------------------ */
+
+export const REPUTATION_ENABLED =
+  process.env.REPUTATION_ENABLED?.trim().toLowerCase() !== "false";
+
+/**
+ * Points one user may EARN per day.
+ *
+ * Caps earning, not voting: a capped upvote still registers and still counts
+ * on the answer, it just stops paying. This is the weakest of the three
+ * anti-gaming controls and the only one that is a judgement rather than a
+ * structural guarantee - the other two (self-awards score zero, one award per
+ * actor per source) are enforced by code and by a unique index.
+ */
+export const REPUTATION_DAILY_CAP = Number(
+  process.env.REPUTATION_DAILY_CAP ?? 50,
+);
+
+/* ------------------------------------------------------------------ *
  * DPDP: consent and retention (CC-64)
  * ------------------------------------------------------------------ */
 

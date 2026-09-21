@@ -8,7 +8,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const db = vi.hoisted(() => {
-  const model = () => ({ deleteMany: vi.fn(async () => ({ count: 0 })) });
+  // The arg is declared so the mock's call tuple has an element - without it
+  // `mock.calls[0]![0]` is a type error rather than a runtime one.
+  const model = () => ({
+    deleteMany: vi.fn(async (_args: { where: Record<string, never> }) => ({
+      count: 0,
+    })),
+  });
   return {
     prisma: {
       notification: model(),
@@ -35,6 +41,18 @@ vi.mock("../../config/database.js", () => db);
 vi.mock("../../config/env.js", () => env);
 
 import { runRetentionSweep } from "../../services/privacy/retention.js";
+
+
+/**
+ * First argument of a mock's first (or nth) call.
+ *
+ * Wrapped because `noUncheckedIndexedAccess` makes every `mock.calls[n][0]` a
+ * possibly-undefined access, which would otherwise need assertions at each of
+ * the sites below.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const argOf = (fn: { mock: { calls: any[][] } }, call = 0): any =>
+  fn.mock.calls[call]![0];
 
 const daysAgo = (cut: Date) =>
   Math.round((Date.now() - cut.getTime()) / 86_400_000);
@@ -66,7 +84,7 @@ describe("runRetentionSweep", () => {
     const result = await runRetentionSweep();
 
     expect(result.notifications).toBe(7);
-    const cut = db.prisma.notification.deleteMany.mock.calls[0]![0].where
+    const cut = argOf(db.prisma.notification.deleteMany, 0).where
       .createdAt.lt;
     expect(daysAgo(cut)).toBe(180);
   });
@@ -76,7 +94,7 @@ describe("runRetentionSweep", () => {
 
     expect(
       daysAgo(
-        db.prisma.doubtView.deleteMany.mock.calls[0]![0].where.viewedAt.lt,
+        argOf(db.prisma.doubtView.deleteMany, 0).where.viewedAt.lt,
       ),
     ).toBe(90);
   });
@@ -85,9 +103,9 @@ describe("runRetentionSweep", () => {
     await runRetentionSweep();
 
     const sentCut =
-      db.prisma.emailOutbox.deleteMany.mock.calls[0]![0].where.createdAt.lt;
+      argOf(db.prisma.emailOutbox.deleteMany, 0).where.createdAt.lt;
     const failedCut =
-      db.prisma.emailOutbox.deleteMany.mock.calls[1]![0].where.createdAt.lt;
+      argOf(db.prisma.emailOutbox.deleteMany, 1).where.createdAt.lt;
 
     // Diagnosing "why did nothing arrive" needs the history.
     expect(failedCut.getTime()).toBeLessThan(sentCut.getTime());
@@ -97,10 +115,10 @@ describe("runRetentionSweep", () => {
     await runRetentionSweep();
 
     expect(
-      db.prisma.emailOutbox.deleteMany.mock.calls[0]![0].where.status,
+      argOf(db.prisma.emailOutbox.deleteMany, 0).where.status,
     ).toBe("SENT");
     expect(
-      db.prisma.emailOutbox.deleteMany.mock.calls[1]![0].where.status,
+      argOf(db.prisma.emailOutbox.deleteMany, 1).where.status,
     ).toBe("FAILED");
   });
 

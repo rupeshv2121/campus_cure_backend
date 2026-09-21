@@ -7,6 +7,7 @@ import internalRoutes from "./internal.js";
 import notificationRoutes from "./notifications.js";
 import studentRoutes from "./students.js";
 import privacyRoutes from "./privacy.js";
+import reputationRoutes from "./reputation.js";
 import { attachmentsRouter, uploadsRouter } from "./uploads.js";
 
 const router = Router();
@@ -20,6 +21,8 @@ router.use("/api/chat", chatRoutes);
 router.use("/api/notifications", notificationRoutes);
 // CC-64: consent, export and erasure. Always the caller's own data.
 router.use("/api/me", privacyRoutes);
+// CC-25: reputation, rank and the leaderboard.
+router.use("/api/reputation", reputationRoutes);
 // CC-02: signing an upload, and reading a file back through a signed URL.
 router.use("/api/uploads", uploadsRouter);
 router.use("/api/attachments", attachmentsRouter);

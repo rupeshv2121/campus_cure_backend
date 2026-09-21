@@ -25,6 +25,11 @@ import {
 } from "../services/storage/attachments.js";
 import { initialSlaDueAt } from "../services/sla/policy.js";
 import {
+  ReputationReason,
+  awardReputation,
+  revokeReputation,
+} from "../services/reputation/reputation.js";
+import {
   createNotification,
   notifyComplaintStatusChange,
 } from "../utils/notifications.js";
@@ -1437,6 +1442,16 @@ export const markAnswerAsAccepted = async (
         }),
       ]);
 
+      // CC-25: the strongest signal available - the person who asked says
+      // this is what solved it.
+      await awardReputation({
+        userId: answer.answeredById,
+        reason: ReputationReason.ANSWER_ACCEPTED,
+        sourceType: "Answer",
+        sourceId: answerId,
+        actorId: req.user!.id,
+      });
+
       // Update student profile - increment doubtsSolved for the answerer
       const answererProfile = await prisma.studentProfile.findUnique({
         where: { userId: answer.answeredById },
@@ -1504,6 +1519,15 @@ export const upvoteAnswer = async (
         data: { upVoteCount: { decrement: 1 } },
       });
 
+      // CC-25: the upvote is gone, so the points go with it.
+      await revokeReputation({
+        userId: answer.answeredById,
+        reason: ReputationReason.ANSWER_UPVOTED,
+        sourceType: "Answer",
+        sourceId: answerId,
+        actorId: userId,
+      });
+
       message = "Answer upvote removed successfully";
     } else {
       // User hasn't upvoted yet, so add the upvote (increment)
@@ -1523,6 +1547,15 @@ export const upvoteAnswer = async (
       await prisma.doubt.update({
         where: { id: answer.doubtId },
         data: { upVoteCount: { increment: 1 } },
+      });
+
+      // CC-25: self-upvotes and repeats score nothing - see the service.
+      await awardReputation({
+        userId: answer.answeredById,
+        reason: ReputationReason.ANSWER_UPVOTED,
+        sourceType: "Answer",
+        sourceId: answerId,
+        actorId: userId,
       });
 
       message = "Answer upvoted successfully";
@@ -1577,6 +1610,14 @@ export const upvoteDoubt = async (
           data: { upVoteCount: { decrement: 1 } },
         }),
       ]);
+      await revokeReputation({
+        userId: updatedDoubt.postedById,
+        reason: ReputationReason.DOUBT_UPVOTED,
+        sourceType: "Doubt",
+        sourceId: doubtId,
+        actorId: userId,
+      });
+
       message = "Doubt upvote removed successfully";
     } else {
       [, updatedDoubt] = await prisma.$transaction([
@@ -1591,6 +1632,17 @@ export const upvoteDoubt = async (
           data: { upVoteCount: { increment: 1 } },
         }),
       ]);
+      // CC-25: asking a question others share has value, at a fifth the rate
+      // of answering one. A forum where asking scores well fills with
+      // questions and empties of answers.
+      await awardReputation({
+        userId: updatedDoubt.postedById,
+        reason: ReputationReason.DOUBT_UPVOTED,
+        sourceType: "Doubt",
+        sourceId: doubtId,
+        actorId: userId,
+      });
+
       message = "Doubt upvoted successfully";
     }
 

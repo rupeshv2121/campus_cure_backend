@@ -337,6 +337,7 @@ they conflict, and resolving it after both have applied locally is genuinely pai
 | CC-13 | [Duplicate complaint detection](specs/CC-13-complaint-dedup.md) | **Shipped** 2026-09-20 — complete (13/13) |
 | CC-14 | [Structured complaint intake](specs/CC-14-complaint-intake.md) | **Shipped** 2026-09-20 — complete |
 | CC-15 | [Tool-calling chatbot](specs/CC-15-chatbot.md) | **Shipped** 2026-09-20 — complete |
+| CC-25 | [Reputation & badges](specs/CC-25-reputation.md) | **Implemented** 2026-09-21 — backend; migration applied |
 | CC-64 | [DPDP compliance](specs/CC-64-dpdp.md) | **Implemented** 2026-09-21 — migration applied |
 | CC-61 | [Audit log](specs/CC-61-audit-log.md) | **Implemented** 2026-09-21 — migration applied, trigger verified |
 | CC-31 | [SLA timers & escalation](specs/CC-31-sla-escalation.md) | **Implemented** 2026-09-21 — migration applied, clocks started |
