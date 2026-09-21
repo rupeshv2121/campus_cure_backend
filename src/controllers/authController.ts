@@ -3,12 +3,27 @@ import bcrypt from "bcrypt";
 import type { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { JWT_SECRET, prisma } from "../config/database.js";
-import { ACCESS_TOKEN_TTL_SECONDS } from "../config/env.js";
+import {
+  ACCESS_TOKEN_TTL_SECONDS,
+  FACE_LOGIN_ENABLED,
+  FACE_REQUIRED_SAMPLES,
+} from "../config/env.js";
 import {
   issueRefreshToken,
   revokeRefreshToken,
   rotateRefreshToken,
 } from "../services/auth/refreshTokens.js";
+import {
+  claimFaceChallenge,
+  consumeFaceChallenge,
+  issueFaceChallenge,
+} from "../services/auth/faceChallenge.js";
+import {
+  decryptDescriptor,
+  encryptDescriptor,
+  isValidDescriptor,
+  verifySamples,
+} from "../services/auth/faceCrypto.js";
 import type { AuthRequest } from "../types/index.js";
 import { withRetry } from "../utils/retry.js";
 
@@ -228,6 +243,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
           university: true,
           role: true,
           approvalStatus: true,
+          // CC-60: presence decides whether a second factor is required.
+          faceDescriptorEnc: true,
         },
       }),
     );
@@ -254,6 +271,24 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
     if (!isPasswordValid) {
       res.status(401).json({ error: "Invalid email or password" });
+      return;
+    }
+
+    // CC-60: face is the SECOND factor. A user who has enrolled one gets a
+    // challenge instead of a session - no token is issued on this response.
+    //
+    // The gate is the enrolled template, not a separate preference flag:
+    // enrolling IS opting in, and a second factor that can be skipped is not
+    // one. DELETE /api/auth/face-descriptor is the way back out.
+    if (FACE_LOGIN_ENABLED && user.faceDescriptorEnc) {
+      const challenge = await issueFaceChallenge(user.id);
+
+      res.json({
+        requiresFace: true,
+        challengeId: challenge.challengeId,
+        nonce: challenge.nonce,
+        expiresInSeconds: challenge.expiresInSeconds,
+      });
       return;
     }
 
@@ -426,6 +461,12 @@ export const saveFaceDescriptor = async (
   try {
     const { descriptor } = req.body;
 
+    if (!FACE_LOGIN_ENABLED) {
+      // A template stored without a key would have to be stored in the clear.
+      res.status(503).json({ error: "Face login is not configured." });
+      return;
+    }
+
     if (
       !descriptor ||
       !Array.isArray(descriptor) ||
@@ -447,143 +488,181 @@ export const saveFaceDescriptor = async (
       return;
     }
 
+    // CC-60: stored encrypted, and never as the plaintext Float[] again.
+    // Biometric template data cannot be changed by its subject once leaked.
     await withRetry(() =>
       prisma.user.update({
         where: { id: req.user!.id },
-        data: { faceDescriptor: descriptor },
+        data: {
+          faceDescriptorEnc: encryptDescriptor(descriptor),
+          faceDescriptor: [],
+        },
+        select: { id: true },
       }),
     );
 
-    res.json({ message: "Face descriptor saved successfully." });
+    res.json({
+      message:
+        "Face saved. You will be asked for it after your password from now on.",
+    });
   } catch (error) {
     console.error("Save face descriptor error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
 
-// 6. Face Login
-export const faceLogin = async (req: Request, res: Response): Promise<void> => {
+// 6. Face verification - CC-60.
+//
+// The old 1:N `faceLogin` that used to live here is GONE, not deprecated. It
+// was an unauthenticated endpoint that scanned every enrolled user and issued
+// a full session to the nearest match. Keeping that behind a flag would have
+// been the same vulnerability with extra steps.
+//
+// What replaces it only runs after a password has verified, matches 1:1
+// against that one account, and requires several samples from separate
+// moments. See docs/specs/CC-60-face-hardening.md.
+export const faceVerify = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { descriptor } = req.body;
+    if (!FACE_LOGIN_ENABLED) {
+      res.status(503).json({ error: "Face login is not configured." });
+      return;
+    }
+
+    const { challengeId, nonce, descriptors } = req.body as {
+      challengeId?: unknown;
+      nonce?: unknown;
+      descriptors?: unknown;
+    };
+
+    if (typeof challengeId !== "string" || typeof nonce !== "string") {
+      res.status(400).json({ error: "Challenge is required." });
+      return;
+    }
 
     if (
-      !descriptor ||
-      !Array.isArray(descriptor) ||
-      descriptor.length !== 128
+      !Array.isArray(descriptors) ||
+      descriptors.length < FACE_REQUIRED_SAMPLES ||
+      !descriptors.every(isValidDescriptor)
     ) {
       res.status(400).json({
-        error: "Invalid face descriptor. Must be a 128-element array.",
+        error: `Send at least ${FACE_REQUIRED_SAMPLES} valid face samples.`,
       });
       return;
     }
 
-    if (
-      !descriptor.every((v: unknown) => typeof v === "number" && isFinite(v))
-    ) {
-      res
-        .status(400)
-        .json({ error: "Descriptor must contain only finite numbers." });
+    const claim = await claimFaceChallenge(challengeId, nonce);
+
+    if (!claim.ok || !claim.userId) {
+      // One message for every failure. Telling the caller whether the
+      // challenge expired, was consumed, or had the wrong nonce tells an
+      // attacker which half of their guess was right.
+      res.status(401).json({ error: "Face verification failed." });
       return;
     }
 
-    // Fetch all users that have a face descriptor registered
-    const users = await withRetry(() =>
-      prisma.user.findMany({
-        where: {
-          NOT: { faceDescriptor: { isEmpty: true } },
-        },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          userID: true,
-          university: true,
-          role: true,
-          approvalStatus: true,
-          isActive: true,
-          faceDescriptor: true,
-        },
-      }),
-    );
+    const user = await prisma.user.findUnique({
+      where: { id: claim.userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        userID: true,
+        university: true,
+        role: true,
+        approvalStatus: true,
+        faceDescriptorEnc: true,
+      },
+    });
 
-    if (users.length === 0) {
-      res.status(401).json({
-        error: "No registered face found. Please register your face first.",
-      });
+    if (!user?.faceDescriptorEnc) {
+      res.status(401).json({ error: "Face verification failed." });
       return;
     }
 
-    // Find best matching user
-    let bestMatch: (typeof users)[0] | null = null;
-    let bestDistance = Infinity;
+    const template = decryptDescriptor(user.faceDescriptorEnc);
+    const outcome = verifySamples(descriptors as number[][], template);
 
-    for (const user of users) {
-      if (user.faceDescriptor.length !== 128) continue;
-      const distance = euclideanDistance(descriptor, user.faceDescriptor);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        bestMatch = user;
-      }
-    }
-
-    const MATCH_THRESHOLD = 0.6;
-
-    if (!bestMatch || bestDistance >= MATCH_THRESHOLD) {
-      res.status(401).json({
-        error: "Face not recognized. Please try again or use password login.",
-      });
+    if (!outcome.ok) {
+      // Logged with the reason so a genuine user who keeps failing can be
+      // diagnosed; the response still says nothing useful to an attacker.
+      console.warn(
+        `[CC-60] face verify rejected for ${user.id}: ${outcome.reason}`,
+      );
+      res.status(401).json({ error: "Face verification failed." });
       return;
     }
 
-    // Note: approval check is intentionally skipped here to match the
-    // behaviour of password login (pending users are allowed to authenticate).
-    // Enforce access restrictions at the protected-route level instead.
+    await consumeFaceChallenge(challengeId);
 
-    // Mark user as active (required so the authenticate middleware doesn't reject the token)
-    await withRetry(() =>
-      prisma.user.update({
-        where: { id: bestMatch!.id },
-        data: { isActive: true },
-      }),
-    );
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { isActive: true },
+      select: { id: true },
+    });
 
-    // Generate JWT token
     const token = jwt.sign(
       {
-        id: bestMatch.id,
-        role: bestMatch.role,
-        userID: bestMatch.userID,
-        university: bestMatch.university,
+        id: user.id,
+        role: user.role,
+        userID: user.userID,
+        university: user.university,
       },
       JWT_SECRET,
       { expiresIn: ACCESS_TOKEN_TTL_SECONDS },
     );
 
-    // CC-01b: face login is a full session, so it gets the revocable half too.
-    // Without this, face-login users would be signed out at the access token
-    // TTL with no way to refresh.
+    // CC-01b: a full session gets the revocable half too.
     const issuedRefresh = await issueRefreshToken(
-      bestMatch.id,
+      user.id,
       req.headers["user-agent"],
     );
 
     res.json({
-      message: "Face login successful",
+      message: "Login successful",
       token,
       refreshToken: issuedRefresh.token,
       user: {
-        id: bestMatch.id,
-        name: bestMatch.name,
-        email: bestMatch.email,
-        userID: bestMatch.userID,
-        university: bestMatch.university,
-        role: bestMatch.role,
-        approvalStatus: bestMatch.approvalStatus,
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        userID: user.userID,
+        university: user.university,
+        role: user.role,
+        approvalStatus: user.approvalStatus,
         isActive: true,
       },
     });
   } catch (error) {
-    console.error("Face login error:", error);
+    console.error("Face verify error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * CC-60: un-enrol.
+ *
+ * The escape hatch for "I enrolled a face and now cannot present it". Requires
+ * an existing session, so it does not help someone already locked out - for
+ * them an admin clearing the template is the recovery path. Predictable
+ * failure mode, so it gets a deliberate answer rather than a support ticket.
+ */
+export const deleteFaceDescriptor = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    await prisma.user.update({
+      where: { id: req.user!.id },
+      data: { faceDescriptorEnc: null, faceDescriptor: [] },
+      select: { id: true },
+    });
+
+    // Any pending challenge is meaningless now.
+    await prisma.faceChallenge.deleteMany({ where: { userId: req.user!.id } });
+
+    res.json({ message: "Face login disabled for your account." });
+  } catch (error) {
+    console.error("Delete face descriptor error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

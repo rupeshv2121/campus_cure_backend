@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
-  faceLogin,
+  deleteFaceDescriptor,
+  faceVerify,
   getMe,
   login,
   logout,
@@ -37,7 +38,16 @@ router.post("/refresh", authLimiter, refresh);
 // 5. Save Face Descriptor (requires JWT — called right after registration)
 router.post("/save-face-descriptor", authenticate, saveFaceDescriptor);
 
-// 6. Face Login
-router.post("/face-login", faceLoginLimiter, faceLogin);
+// 6. Face verification - CC-60.
+//
+// `POST /face-login` is GONE. It was unauthenticated, matched 1:N across every
+// enrolled user, and issued a full session to the nearest match. This replaces
+// it: reachable only with a challenge that the password step issued, matched
+// 1:1 against that one account.
+router.post("/face/verify", faceLoginLimiter, faceVerify);
+
+// 6b. Un-enrol. The escape hatch for a user who can no longer present the
+// face they enrolled - see the spec's lockout section.
+router.delete("/face-descriptor", authenticate, deleteFaceDescriptor);
 
 export default router;

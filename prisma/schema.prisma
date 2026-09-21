@@ -18,7 +18,15 @@ model User {
   id                 String          @id @default(uuid())
   role               Role
   approvalStatus     ApprovalStatus
+  /// CC-60. DEPRECATED and cleared by encryptFaceDescriptors.ts. Kept only so
+  /// the one-time migration script has something to read. Never written again.
   faceDescriptor     Float[]         @default([])
+  /// CC-60. AES-256-GCM, "iv:tag:ciphertext" in base64. Biometric template
+  /// data is regulated under the DPDP Act and, unlike a password, cannot be
+  /// changed by its subject once leaked. GCM rather than CBC because it
+  /// authenticates: a tampered template fails to decrypt instead of silently
+  /// comparing against modified data.
+  faceDescriptorEnc  String?
   adminProfile       AdminProfile?
   answers            Answer[]
   moderatedAnswers   Answer[]        @relation("ModeratedAnswers")
@@ -42,6 +50,7 @@ model User {
   refreshTokens      RefreshToken[]
   attachments        Attachment[]
   doubtBookmarks     DoubtBookmark[]
+  faceChallenges     FaceChallenge[]
 }
 
 model StudentProfile {
@@ -470,4 +479,27 @@ enum EmailStatus {
   PENDING
   SENT
   FAILED
+}
+
+/// CC-60. A pending face verification, created by the password step.
+///
+/// Face is the SECOND factor: this row only exists once a password has already
+/// been verified, and it is the only way to reach the face endpoint. Short
+/// lived, single use and attempt capped, which is what stops a captured
+/// request being replayed and a known account being brute forced in
+/// descriptor space.
+model FaceChallenge {
+  id         String    @id @default(uuid())
+  userId     String
+  /// SHA-256 of the nonce, never the nonce itself. Possession of this table
+  /// must not be possession of a credential - same reasoning as RefreshToken.
+  nonceHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int       @default(0)
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
