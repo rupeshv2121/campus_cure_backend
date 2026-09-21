@@ -43,7 +43,7 @@ graph TD
   CC02 --> CC30[CC-30 Complaint evidence]
   CC02 --> CC50[CC-50 Image doubts]
   CC03[CC-03 Email infra] --> CC40[CC-40 Email notifications]
-  CC03 --> CC61[CC-61 Email OTP]
+  CC03 --> CC63[CC-63 Email OTP]
   CC10[CC-10 Embedding infra] --> CC11[CC-11 Hybrid search]
   CC10 --> CC13[CC-13 Complaint dedup]
   CC11 --> CC12[CC-12 AI answer draft]
@@ -340,7 +340,7 @@ they conflict, and resolving it after both have applied locally is genuinely pai
 | CC-02 | [File storage layer](specs/CC-02-file-storage.md) | **Dormant** 2026-09-21 — code complete, off pending Supabase dashboard access |
 | CC-20 | [Doubt tags](specs/CC-20-tags.md) | **Shipped** 2026-09-21 — migration applied |
 | CC-21 | [Doubt bookmarks](specs/CC-21-bookmarks.md) | **Shipped** 2026-09-21 — migration applied |
-| CC-22 | [Code syntax highlighting](specs/CC-22-code-highlighting.md) | **Implemented** 2026-09-21 — pending review/merge |
+| CC-22 | [Code syntax highlighting](specs/CC-22-code-highlighting.md) | **Shipped** 2026-09-21 |
 | — | [Spec template](specs/TEMPLATE.md) | — |
 
 Remaining features are specced just-in-time, one phase ahead of implementation. Writing all ~30 specs

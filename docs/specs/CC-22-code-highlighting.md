@@ -2,14 +2,14 @@
 
 | | |
 |---|---|
-| **Status** | **Implemented 2026-09-21** — pending review/merge |
+| **Status** | **Shipped 2026-09-21** |
 | **Phase** | 2 |
 | **Branch** | `feat/CC-22-code-highlighting` |
 | **Repos** | frontend |
 | **Depends on** | none |
 | **Blocks** | nothing |
 | **Estimate** | 0.5 days |
-| **Shipped** | — |
+| **Shipped** | 2026-09-21 |
 
 ## Problem
 
