@@ -340,7 +340,7 @@ they conflict, and resolving it after both have applied locally is genuinely pai
 | CC-23 | [Rich text editor](specs/CC-23-rich-text.md) | **Implemented** 2026-09-21 — migration applied; images pending CC-02 |
 | CC-24 | [Doubt & answer attachments](specs/CC-24-doubt-attachments.md) | **Implemented** 2026-09-21 — inert until CC-02 has a bucket |
 | CC-42 | [Telegram notifications](specs/CC-42-telegram.md) | **Implemented** 2026-09-21 — migration applied; needs a bot token |
-| CC-25 | [Reputation & badges](specs/CC-25-reputation.md) | **Implemented** 2026-09-21 — backend; migration applied |
+| CC-25 | [Reputation & badges](specs/CC-25-reputation.md) | **Shipped** 2026-09-21 — backend and frontend |
 | CC-64 | [DPDP compliance](specs/CC-64-dpdp.md) | **Implemented** 2026-09-21 — migration applied |
 | CC-61 | [Audit log](specs/CC-61-audit-log.md) | **Implemented** 2026-09-21 — migration applied, trigger verified |
 | CC-31 | [SLA timers & escalation](specs/CC-31-sla-escalation.md) | **Implemented** 2026-09-21 — migration applied, clocks started |

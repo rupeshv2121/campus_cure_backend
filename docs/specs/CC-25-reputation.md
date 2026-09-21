@@ -2,14 +2,14 @@
 
 | | |
 |---|---|
-| **Status** | **Implemented 2026-09-21** — backend; migration applied |
+| **Status** | **Shipped 2026-09-21** — backend and frontend |
 | **Phase** | 2 |
 | **Branch** | `feat/CC-25-reputation` |
 | **Repos** | both |
 | **Depends on** | none |
 | **Blocks** | CC-26 |
 | **Estimate** | 4 days |
-| **Shipped** | — |
+| **Shipped** | 2026-09-21 |
 
 ## Problem
 
@@ -166,9 +166,16 @@ This is stated because "you forgot to backfill" is the obvious reading otherwise
 
 Backend built, migration applied. 23 tests; 614 backend tests total.
 
-**Frontend is not built.** The endpoints (`/api/reputation/me`, `/me/history`,
-`/leaderboard`) are live and a UI needs no migration, but no page renders a score or a
-rank yet. The spec claimed "both repos"; only the backend shipped in this pass.
+**Frontend shipped 2026-09-21**, in a second pass: a Reputation page (score, rank,
+progress to the next one, daily-cap usage, the ledger and the leaderboard), routed for
+students and faculty alike since the endpoints authorize both.
+
+The change that matters most is not the page. Author reputation now appears **beside
+each answer**, which meant adding `reputation` to four author `select`s. A leaderboard
+nobody opens does not help anyone judge an answer; a number next to the author does.
+
+It is deliberately silent at zero — a "0" beside a newcomer's first answer discourages
+exactly the person the community most needs to keep.
 
 Two of my own test expectations were wrong and I fixed the tests, not the code: a
 leaderboard fixture at 120 points asserted rank `Helper` when 120 is `Contributor`
