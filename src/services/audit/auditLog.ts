@@ -31,6 +31,8 @@ export const AuditAction = {
   COMPLAINT_REASSIGN: "complaint.reassign",
   COMPLAINT_ESCALATE: "complaint.escalate",
   FACE_CLEAR: "face.clear",
+  DATA_EXPORT: "data.export",
+  DATA_ERASE: "data.erase",
 } as const;
 
 export type AuditActionValue =

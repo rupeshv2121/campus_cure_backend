@@ -249,6 +249,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
           approvalStatus: true,
           // CC-60: presence decides whether a second factor is required.
           faceDescriptorEnc: true,
+          // CC-64: an erased account must not be reachable.
+          erasedAt: true,
         },
       }),
     );
@@ -275,6 +277,16 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
     if (!isPasswordValid) {
       res.status(401).json({ error: "Invalid email or password" });
+      return;
+    }
+
+    // CC-64: erasure replaces the password with a non-hash, so bcrypt already
+    // fails - but relying on that is relying on an implementation detail of
+    // how the tombstone happens to be written. This is the explicit check.
+    if (user.erasedAt) {
+      res.status(403).json({
+        error: "This account has been erased and cannot be used.",
+      });
       return;
     }
 

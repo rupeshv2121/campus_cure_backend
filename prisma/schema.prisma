@@ -51,6 +51,12 @@ model User {
   attachments        Attachment[]
   doubtBookmarks     DoubtBookmark[]
   faceChallenges     FaceChallenge[]
+  consentRecords     ConsentRecord[]
+  /// CC-64. Set when the data principal exercised their right to erasure.
+  /// The row survives as a tombstone because deleting it is impossible
+  /// (foreign keys) and undesirable (a doubt with twelve answers is not only
+  /// its author's data).
+  erasedAt           DateTime?
 }
 
 model StudentProfile {
@@ -559,4 +565,25 @@ model AuditLog {
 enum AuditActor {
   USER
   SYSTEM
+}
+
+/// CC-64. One row per consent grant or withdrawal.
+///
+/// Append-only by convention: nothing updates a row, so "what did I agree to,
+/// and when did I change my mind" is answerable from the history rather than
+/// from whatever the current policy says.
+model ConsentRecord {
+  id            String   @id @default(uuid())
+  userId        String
+  /// Bumping this in code invalidates prior consent and re-prompts.
+  policyVersion String
+  granted       Boolean
+  /// What the user was actually shown at the time, not what the site says now.
+  purposes      String[]
+  ip            String?
+  userAgent     String?
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }

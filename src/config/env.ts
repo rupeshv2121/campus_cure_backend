@@ -290,6 +290,48 @@ if (!Number.isInteger(EMAIL_MAX_ATTEMPTS) || EMAIL_MAX_ATTEMPTS <= 0) {
 }
 
 /* ------------------------------------------------------------------ *
+ * DPDP: consent and retention (CC-64)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Bumping this invalidates every prior consent and re-prompts everyone.
+ *
+ * A date rather than a number so "which policy did they agree to" is
+ * answerable without a lookup table.
+ */
+export const DPDP_POLICY_VERSION =
+  process.env.DPDP_POLICY_VERSION?.trim() || "2026-09-21";
+
+/** Off means the retention sweep returns zeroes without querying. */
+export const RETENTION_ENABLED =
+  process.env.RETENTION_ENABLED?.trim().toLowerCase() !== "false";
+
+/**
+ * Per-table limits, in days.
+ *
+ * Complaints, doubts and answers are deliberately absent. They are the record
+ * of the institution's own conduct, and quietly deleting a complaint after a
+ * year is the exact failure a complaints system must not have.
+ */
+export const RETENTION_NOTIFICATION_DAYS = Number(
+  process.env.RETENTION_NOTIFICATION_DAYS ?? 180,
+);
+
+export const RETENTION_DOUBT_VIEW_DAYS = Number(
+  process.env.RETENTION_DOUBT_VIEW_DAYS ?? 90,
+);
+
+/** Sent mail is delivery evidence, and the body contains personal data. */
+export const RETENTION_EMAIL_SENT_DAYS = Number(
+  process.env.RETENTION_EMAIL_SENT_DAYS ?? 90,
+);
+
+/** Failures are kept longer because diagnosis needs the history. */
+export const RETENTION_EMAIL_FAILED_DAYS = Number(
+  process.env.RETENTION_EMAIL_FAILED_DAYS ?? 365,
+);
+
+/* ------------------------------------------------------------------ *
  * SLA and escalation (CC-31)
  * ------------------------------------------------------------------ */
 
