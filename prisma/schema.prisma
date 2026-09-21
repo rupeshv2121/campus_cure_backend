@@ -517,3 +517,46 @@ model FaceChallenge {
   @@index([userId])
   @@index([expiresAt])
 }
+
+/// CC-61. An immutable record of a privileged action.
+///
+/// Append-only: nothing in the application updates or deletes a row, and a
+/// database trigger raises on UPDATE and DELETE so that convention is backed
+/// by a control. A superuser can still drop the trigger - this is
+/// tamper-RESISTANT, not tamper-proof. See the spec.
+model AuditLog {
+  id         String     @id @default(uuid())
+  actorType  AuditActor @default(USER)
+  /// Deliberately NOT a relation. A cascade would let anyone erase their own
+  /// history by deleting their account, which is the exact thing this table
+  /// exists to prevent.
+  actorId    String?
+  /// Snapshot of who they were AT THE TIME. An entry must stay meaningful
+  /// after the account is gone or its role has changed - looking it up later
+  /// would answer today's question about a past event.
+  actorRole  String?
+  actorLabel String?
+  /// Dotted string, e.g. "complaint.assign". Not an enum: an enum means a
+  /// migration every time a new action is audited, and that tax gets paid by
+  /// not auditing the new thing.
+  action     String
+  targetType String
+  targetId   String?
+  summary    String
+  /// Scrubbed before writing - see redact() in services/audit/auditLog.ts.
+  /// Audit metadata is attacker-interesting by construction.
+  metadata   Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime   @default(now())
+
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId])
+  @@index([action, createdAt])
+}
+
+enum AuditActor {
+  USER
+  SYSTEM
+}

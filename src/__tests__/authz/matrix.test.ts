@@ -79,6 +79,14 @@ const ROUTES: RouteCase[] = [
   },
   // CC-15: the chatbot exposes student-scoped tools, so only students reach it.
   { method: "post", path: "/api/chat/", allow: ["STUDENT"] },
+  // CC-61: the audit trail is SUPER_ADMIN only. Most entries are about ADMIN
+  // behaviour, and a trail the audited party can read is one they can learn to
+  // work around - so ADMIN is excluded deliberately, not by oversight.
+  {
+    method: "get",
+    path: "/api/admin/audit-log",
+    allow: ["SUPER_ADMIN"],
+  },
   // CC-20/CC-21: the doubt community is students and faculty, matching the
   // roles already granted on upvoteDoubt. Admins do not take part in it.
   {

@@ -19,6 +19,10 @@ import {
   issueFaceChallenge,
 } from "../services/auth/faceChallenge.js";
 import {
+  AuditAction,
+  auditFromRequest,
+} from "../services/audit/auditLog.js";
+import {
   decryptDescriptor,
   encryptDescriptor,
   isValidDescriptor,
@@ -659,6 +663,16 @@ export const deleteFaceDescriptor = async (
 
     // Any pending challenge is meaningless now.
     await prisma.faceChallenge.deleteMany({ where: { userId: req.user!.id } });
+
+    // CC-61: deleting regulated personal data with no record of who asked or
+    // when is the specific thing a data protection regime cares about. The
+    // template itself is never in the metadata - see redact().
+    await auditFromRequest(req, {
+      action: AuditAction.FACE_CLEAR,
+      targetType: "User",
+      targetId: req.user!.id,
+      summary: "Cleared own face template",
+    });
 
     res.json({ message: "Face login disabled for your account." });
   } catch (error) {
