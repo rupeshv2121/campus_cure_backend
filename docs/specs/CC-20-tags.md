@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | **Implemented 2026-09-21** — migration NOT applied; pending review/merge |
 | **Phase** | 2 |
 | **Branch** | `feat/CC-20-tags` |
 | **Repos** | both |
@@ -271,6 +271,26 @@ Registered **before** `/doubts/:id` in `src/routes/students.ts`, or `tags` is ca
 16. Clicking a tag chip anywhere filters the list and updates the URL.
 17. Reloading a filtered URL restores the filter.
 18. `c++` survives normalization intact, and renders as `C++` if that is the canonical casing.
+
+## Implementation notes 2026-09-21
+
+Built. 27 unit tests for `src/utils/tags.ts` plus route coverage in
+`bookmarks.test.ts` (the vocabulary endpoint shares the shadowing test).
+
+**The migration has not been run.** `prisma/migrations/20260921110000_cc20_add_doubt_labels_normalized`
+is written and additive, but nobody has applied it — every environment still has a
+`Doubt` table with no `labelsNormalized` column, so the tag filter and vocabulary
+endpoint will error until someone runs `npx prisma migrate deploy`. Announce it first.
+
+The backfill lives in the migration SQL rather than only in a script, so a fresh
+database and an existing one converge. `src/scripts/normalizeDoubtLabels.ts` is still
+the authoritative, re-runnable version if `normalizeTag` ever changes — and it can be
+re-run precisely because `labels` is never written to.
+
+One deviation: `MAX_TAG_LENGTH` and `MAX_TAGS_PER_DOUBT` are duplicated in
+`CampusCure_Frontend/src/lib/tagLimits.ts` so the form can fail fast. The normalization
+*rule* is deliberately not duplicated — the normalized key travels with each doubt
+instead, so it exists in one language only.
 
 ## Test plan
 

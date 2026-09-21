@@ -33,6 +33,7 @@ model User {
   notifications      Notification[]
   refreshTokens      RefreshToken[]
   attachments        Attachment[]
+  doubtBookmarks     DoubtBookmark[]
 }
 
 model StudentProfile {
@@ -97,7 +98,14 @@ model Doubt {
   description      String
   semester         Int
   subject          String
+  /// As the author typed it. Never overwritten and never rendered directly:
+  /// display goes through the vocabulary's canonical casing (CC-20).
   labels           String[]
+  /// CC-20. Derived from `labels` on every write. Never user-supplied, never
+  /// rendered: it is the lookup key that filtering, aggregation and canonical
+  /// display all match on. `labels` remains the source of truth - if the two
+  /// ever disagree, `labels` is right and this is stale.
+  labelsNormalized String[]                    @default([])
   postedById       String
   status           DoubtStatus                 @default(OPEN)
   views            Int                         @default(0)
@@ -121,6 +129,9 @@ model Doubt {
   postedBy         User                        @relation(fields: [postedById], references: [id])
   doubtViews       DoubtView[]
   doubtUpvotes     DoubtUpvote[]
+  doubtBookmarks   DoubtBookmark[]
+
+  @@index([labelsNormalized], type: Gin)
 }
 
 model Answer {
@@ -389,4 +400,26 @@ enum AttachmentEntity {
   ANSWER
   COMPLAINT
   COMPLAINT_RESOLUTION
+}
+
+/// CC-21. A private "save for later" on a doubt.
+///
+/// Mirrors DoubtUpvote exactly - same composite unique, same cascades, same
+/// index pair - because it is the same shape of relationship and inventing a
+/// second convention for it would be gratuitous.
+///
+/// There is deliberately NO denormalised count on Doubt, unlike upVoteCount.
+/// A counter exists to be displayed, and displaying this one would turn a
+/// private action public and change behaviour.
+model DoubtBookmark {
+  id      String   @id @default(uuid())
+  doubtId String
+  userId  String
+  savedAt DateTime @default(now())
+  doubt   Doubt    @relation(fields: [doubtId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([doubtId, userId])
+  @@index([userId])
+  @@index([doubtId])
 }

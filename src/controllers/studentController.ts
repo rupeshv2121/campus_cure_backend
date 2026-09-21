@@ -27,6 +27,12 @@ import {
   createNotification,
   notifyComplaintStatusChange,
 } from "../utils/notifications.js";
+import {
+  TagError,
+  buildVocabulary,
+  parseTagQuery,
+  prepareTags,
+} from "../utils/tags.js";
 
 const isTenDigitPhoneNumber = (value: unknown): boolean =>
   typeof value === "string" && /^\d{10}$/.test(value.trim());
@@ -68,6 +74,32 @@ interface CommonDoubtTopicBucket {
   newestAt: number;
   topDoubts: CommonDoubtCandidate[];
 }
+
+/**
+ * CC-21: bookmark ids for one user across a page of doubts.
+ *
+ * Returns an empty set rather than throwing when the table is absent. The
+ * DoubtBookmark migration may not be applied on every environment yet, and a
+ * missing "save for later" flag must not take the whole doubt feed down with
+ * it - the same tolerance the upvote read already has.
+ */
+const readBookmarkedIds = async (
+  userId: string,
+  doubtIds: string[],
+): Promise<Set<string>> => {
+  if (doubtIds.length === 0) return new Set();
+
+  try {
+    const rows = await prisma.doubtBookmark.findMany({
+      where: { userId, doubtId: { in: doubtIds } },
+      select: { doubtId: true },
+    });
+    return new Set(rows.map((row) => row.doubtId));
+  } catch (error) {
+    if (isDoubtUpvoteSchemaMissingError(error)) return new Set();
+    throw error;
+  }
+};
 
 const isDoubtUpvoteSchemaMissingError = (error: unknown): boolean => {
   return (
@@ -743,7 +775,8 @@ export const postDoubt = async (
           description,
           semester,
           subject,
-          labels: labels || [],
+          // CC-20: both columns from one helper so they cannot drift.
+          ...prepareTags(labels),
           postedBy: { connect: { id: req.user!.id } },
         },
         include: {
@@ -778,6 +811,11 @@ export const postDoubt = async (
 
     res.status(201).json({ message: "Doubt posted successfully", doubt });
   } catch (error) {
+    if (error instanceof TagError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+
     console.error("Error posting doubt:", error);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -792,6 +830,16 @@ export const getDoubts = async (
     const { status, subject, semester, search } = req.query;
 
     const where: Prisma.DoubtWhereInput = {};
+
+    // CC-20: ?tag=recursion, repeatable. Both sides go through normalizeTag,
+    // so this stays an exact match against the GIN-indexed column.
+    //
+    // hasEvery, not hasSome: a student narrowing a list expects each added tag
+    // to show FEWER results.
+    const tags = parseTagQuery(req.query.tag);
+    if (tags.length > 0) {
+      where.labelsNormalized = { hasEvery: tags };
+    }
 
     const doubtStatuses: DoubtStatus[] = [
       DoubtStatus.OPEN,
@@ -871,10 +919,19 @@ export const getDoubts = async (
 
     const upvotedDoubtIds = new Set(userDoubtUpvotes.map((uv) => uv.doubtId));
 
+    // CC-21: one batched lookup, not one per doubt. Tolerates the table not
+    // existing for the same reason the upvote read above does - the migration
+    // may not have been applied yet, and that must not break the feed.
+    const bookmarkedDoubtIds = await readBookmarkedIds(
+      req.user!.id,
+      doubts.map((doubt) => doubt.id),
+    );
+
     res.json({
       doubts: doubts.map((doubt) => ({
         ...doubt,
         isUpvotedByUser: upvotedDoubtIds.has(doubt.id),
+        isBookmarkedByUser: bookmarkedDoubtIds.has(doubt.id),
       })),
     });
   } catch (error) {
@@ -1136,11 +1193,15 @@ export const getDoubtById = async (
       }
     }
 
+    // CC-21: same missing-table tolerance as the upvote read above.
+    const bookmarkedIds = await readBookmarkedIds(userId, [id]);
+
     res.json({
       doubt: {
         ...doubt,
         answers: answersWithUpvoteStatus,
         isUpvotedByUser: Boolean(doubtUpvote),
+        isBookmarkedByUser: bookmarkedIds.has(id),
       },
     });
   } catch (error) {
@@ -1188,7 +1249,7 @@ export const editDoubt = async (
         ...(title && { title }),
         ...(description && { description }),
         ...(subject && { subject }),
-        ...(labels && { labels }),
+        ...(labels ? prepareTags(labels) : {}),
         edited: true,
         editHistory,
       },
@@ -1196,6 +1257,11 @@ export const editDoubt = async (
 
     res.json({ message: "Doubt updated successfully", doubt });
   } catch (error) {
+    if (error instanceof TagError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+
     console.error("Error editing doubt:", error);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -2227,6 +2293,154 @@ export const submitComplaintFeedback = async (
     res.json({ message: "Feedback submitted successfully" });
   } catch (error) {
     console.error("Submit complaint feedback error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/* ------------------------------------------------------------------ *
+ * CC-20: tag vocabulary
+ * ------------------------------------------------------------------ */
+
+/**
+ * Every tag in use, with its canonical display casing and a count.
+ *
+ * Deliberately UNCAPPED. An earlier draft returned the top 50 by count, which
+ * is right for an autocomplete and wrong for a display map: a long-tail tag
+ * missing from the response would fall back to its raw casing, and the casing
+ * divergence this endpoint exists to remove would survive in exactly the
+ * places nobody checks. The full list is a few hundred short strings - smaller
+ * than one doubt's description. The client slices the top N for suggestions.
+ */
+export const getDoubtTags = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const rows = await prisma.doubt.findMany({
+      select: { labels: true, labelsNormalized: true },
+    });
+
+    res.json({ tags: buildVocabulary(rows) });
+  } catch (error) {
+    console.error("Error fetching doubt tags:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/* ------------------------------------------------------------------ *
+ * CC-21: bookmarks
+ * ------------------------------------------------------------------ */
+
+/**
+ * Save a doubt. Idempotent: saving twice is 200, not 409.
+ *
+ * This is a toggle behind a button students will double-tap on bad campus
+ * wifi. An error on the second tap is noise, not information, and the
+ * composite unique index means the database enforces single-row regardless.
+ */
+export const bookmarkDoubt = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const doubtId = req.params.doubtId as string;
+
+    const doubt = await prisma.doubt.findUnique({
+      where: { id: doubtId },
+      select: { id: true },
+    });
+
+    if (!doubt) {
+      res.status(404).json({ error: "Doubt not found" });
+      return;
+    }
+
+    await prisma.doubtBookmark.upsert({
+      where: { doubtId_userId: { doubtId, userId: req.user!.id } },
+      create: { doubtId, userId: req.user!.id },
+      update: {},
+    });
+
+    res.json({ bookmarked: true });
+  } catch (error) {
+    console.error("Error bookmarking doubt:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/** Remove a save. Idempotent: removing one that is not there is 200. */
+export const unbookmarkDoubt = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    await prisma.doubtBookmark.deleteMany({
+      where: {
+        doubtId: req.params.doubtId as string,
+        userId: req.user!.id,
+      },
+    });
+
+    res.json({ bookmarked: false });
+  } catch (error) {
+    console.error("Error removing bookmark:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * The caller's saved doubts, newest save first.
+ *
+ * Scoped by req.user.id and never by anything the client sends - a bookmark
+ * list is private, and this is the only query that could leak one.
+ */
+export const getBookmarkedDoubts = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const bookmarks = await prisma.doubtBookmark.findMany({
+      where: { userId: req.user!.id },
+      orderBy: { savedAt: "desc" },
+      select: { doubtId: true, savedAt: true },
+    });
+
+    if (bookmarks.length === 0) {
+      res.json({ doubts: [] });
+      return;
+    }
+
+    const doubts = await prisma.doubt.findMany({
+      where: { id: { in: bookmarks.map((bookmark) => bookmark.doubtId) } },
+      include: {
+        postedBy: {
+          select: {
+            id: true,
+            name: true,
+            userID: true,
+            studentProfile: { select: { semester: true, branch: true } },
+          },
+        },
+        _count: { select: { answers: true } },
+      },
+    });
+
+    // Ordered by when the user saved it, not when it was posted, so the list
+    // reads as "what I put here" rather than as another feed.
+    const byId = new Map(doubts.map((doubt) => [doubt.id, doubt]));
+
+    res.json({
+      doubts: bookmarks
+        .map((bookmark) => {
+          const doubt = byId.get(bookmark.doubtId);
+          return doubt
+            ? { ...doubt, savedAt: bookmark.savedAt, isBookmarkedByUser: true }
+            : null;
+        })
+        .filter(Boolean),
+    });
+  } catch (error) {
+    console.error("Error fetching bookmarked doubts:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

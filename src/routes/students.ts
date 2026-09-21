@@ -14,6 +14,10 @@ import {
   getMyAnswers,
   getMyDoubts,
   getSimilarDoubtSuggestions,
+  getDoubtTags,
+  bookmarkDoubt,
+  unbookmarkDoubt,
+  getBookmarkedDoubts,
   getStudentPostingSettings,
   getStudentProfile,
   getSubjectWiseDoubtsAnalytics,
@@ -95,6 +99,10 @@ router.get(
   authenticate,
   authorize(Role.STUDENT),
   getSimilarDoubtSuggestions,
+  getDoubtTags,
+  bookmarkDoubt,
+  unbookmarkDoubt,
+  getBookmarkedDoubts,
 );
 
 // 11b. Get SubjectWise doubts analytics
@@ -107,6 +115,23 @@ router.get(
 
 // 12. Get student's own doubts
 router.get("/doubts/my", authenticate, authorize(Role.STUDENT), getMyDoubts);
+
+// CC-20: the tag vocabulary. Registered before /doubts/:id, or "tags" is
+// captured as a doubt id - the same hazard called out for /complaints/similar.
+router.get(
+  "/doubts/tags",
+  authenticate,
+  authorize(Role.STUDENT, Role.FACULTY),
+  getDoubtTags,
+);
+
+// CC-21: the caller's saved doubts. Also registered before /doubts/:id.
+router.get(
+  "/doubts/bookmarked",
+  authenticate,
+  authorize(Role.STUDENT, Role.FACULTY),
+  getBookmarkedDoubts,
+);
 
 // 13. Get a single doubt by ID
 router.get("/doubts/:id", authenticate, authorize(Role.STUDENT), getDoubtById);
@@ -154,6 +179,22 @@ router.post(
   authenticate,
   authorize(Role.STUDENT, Role.FACULTY),
   upvoteDoubt,
+);
+
+// CC-21: save / unsave a doubt. Both idempotent - this is a toggle behind a
+// button students will double-tap on bad wifi. Same roles as upvoteDoubt.
+router.post(
+  "/doubts/:doubtId/bookmark",
+  authenticate,
+  authorize(Role.STUDENT, Role.FACULTY),
+  bookmarkDoubt,
+);
+
+router.delete(
+  "/doubts/:doubtId/bookmark",
+  authenticate,
+  authorize(Role.STUDENT, Role.FACULTY),
+  unbookmarkDoubt,
 );
 
 // 17b. Edit own answer (allowed only while pending moderation)
