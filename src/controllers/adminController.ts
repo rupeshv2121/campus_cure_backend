@@ -1,4 +1,10 @@
-import { AdminLevel, ApprovalStatus, Prisma, Role } from "@prisma/client";
+import {
+  AdminLevel,
+  ApprovalStatus,
+  ComplaintStatus,
+  Prisma,
+  Role,
+} from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
 import { getDuplicateClusters } from "../services/search/duplicateClusters.js";
@@ -7,6 +13,7 @@ import {
   appendComplaintAssignmentHistory,
   buildComplaintAssignmentHistoryEntry,
 } from "../utils/complaintAssignmentHistory.js";
+import { computeSlaDueAt } from "../services/sla/policy.js";
 import {
   createNotification,
   notifyComplaintAssignment,
@@ -808,6 +815,8 @@ export const assignComplaint = async (
         title: true,
         status: true,
         raisedById: true,
+        // CC-31: the resolution budget depends on it.
+        priority: true,
         assignedTo: {
           select: {
             id: true,
@@ -867,6 +876,9 @@ export const assignComplaint = async (
       },
       status: "ASSIGNED" as const,
       assignedAt: new Date(),
+      // CC-31: the clock moves from "nobody has picked this up" to "the
+      // assignee has not fixed it". Different budget, fresh deadline.
+      slaDueAt: computeSlaDueAt(ComplaintStatus.ASSIGNED, complaint.priority),
     };
 
     const complaintUpdateDataWithHistory = {
@@ -1035,6 +1047,15 @@ export const updateComplaintStatus = async (
       // Clear stale pending timestamp when moving to other statuses.
       updateData.pendingConfirmationAt = null;
     }
+
+    // CC-31: the deadline follows whoever is actually holding the complaint.
+    // PENDING_CONFIRMATION and RESOLVED mean staff are no longer the blocker,
+    // so the clock stops - a student who takes a week to confirm must never
+    // count as a staff SLA breach.
+    updateData.slaDueAt = computeSlaDueAt(
+      status as ComplaintStatus,
+      complaint.priority,
+    );
 
     try {
       await prisma.complaint.update({

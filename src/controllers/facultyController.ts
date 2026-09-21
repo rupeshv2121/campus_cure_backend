@@ -1,8 +1,9 @@
-import { ApprovalStatus, DoubtStatus, Prisma, Role } from "@prisma/client";
+import { ComplaintStatus, ApprovalStatus, DoubtStatus, Prisma, Role } from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
 import { generateDraftForDoubt } from "../services/ai/answerDraft.js";
 import type { AuthRequest } from "../types/index.js";
+import { computeSlaDueAt } from "../services/sla/policy.js";
 import {
   notifyComplaintStatusChange,
   notifyDoubtAnswer,
@@ -341,6 +342,15 @@ export const updateComplaintStatus = async (
       // If complaint moves back to IN_PROGRESS, clear stale pending timestamp.
       updateData.pendingConfirmationAt = null;
     }
+
+    // CC-31: the deadline follows whoever is actually holding the complaint.
+    // PENDING_CONFIRMATION and RESOLVED mean staff are no longer the blocker,
+    // so the clock stops - a student who takes a week to confirm must never
+    // count as a staff SLA breach.
+    updateData.slaDueAt = computeSlaDueAt(
+      status as ComplaintStatus,
+      complaint.priority,
+    );
 
     try {
       await prisma.complaint.update({

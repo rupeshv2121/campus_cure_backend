@@ -6,6 +6,7 @@ import { runEmbeddingDrain } from "../services/ai/embeddingWorker.js";
 import { runDraftGeneration } from "../services/ai/answerDraft.js";
 import { purgeExpiredRefreshTokens } from "../services/auth/refreshTokens.js";
 import { purgeExpiredFaceChallenges } from "../services/auth/faceChallenge.js";
+import { getSlaStats, runSlaSweep } from "../services/sla/escalation.js";
 import { sweepAttachments } from "../services/storage/attachments.js";
 import {
   enqueueEmail,
@@ -180,6 +181,43 @@ router.post("/email/test", async (req: Request, res: Response) => {
   }
 });
 
+/* ------------------------------------------------------------------ *
+ * CC-31: SLA sweep
+ * ------------------------------------------------------------------ */
+
+/**
+ * Escalate whatever is overdue.
+ *
+ * Also reachable directly, which matters more than it looks: the cron runs
+ * once a day, so without this a demo of the escalation ladder would mean
+ * waiting until 02:00.
+ */
+const slaSweepHandler = async (req: Request, res: Response): Promise<void> => {
+  if (!requireInternalSecret(req, res)) return;
+
+  try {
+    res.json(await runSlaSweep());
+  } catch (error) {
+    console.error("[internal] SLA sweep failed:", error);
+    res.status(500).json({ error: "SLA sweep failed" });
+  }
+};
+
+router.post("/sla/sweep", slaSweepHandler);
+router.get("/sla/sweep", slaSweepHandler);
+
+/** What is overdue, what is due soon, and what has already escalated. */
+router.get("/sla/stats", async (req: Request, res: Response) => {
+  if (!requireInternalSecret(req, res)) return;
+
+  try {
+    res.json(await getSlaStats());
+  } catch (error) {
+    console.error("[internal] SLA stats failed:", error);
+    res.status(500).json({ error: "SLA stats failed" });
+  }
+});
+
 /**
  * One daily job doing all the scheduled work.
  *
@@ -217,6 +255,11 @@ const dailyHandler = async (req: Request, res: Response): Promise<void> => {
   // CC-03: the floor on retry latency, not the mechanism. Mail is normally
   // sent by the opportunistic drain within a second of being queued; this
   // catches anything left PENDING because a lambda froze mid-drain.
+  // CC-31 runs BEFORE the email drain, deliberately. The sweep queues
+  // escalation notices, and those are the most time-sensitive messages this
+  // job produces - draining first would leave them in the outbox until
+  // tomorrow's run.
+  await step("sla", () => runSlaSweep());
   await step("emails", () => runEmailDrain());
   // CC-60: face challenges are short-lived by design; expired rows are just
   // litter, but litter that accumulates once per failed login.
