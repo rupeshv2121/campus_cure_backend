@@ -1,5 +1,6 @@
 import { NotificationType } from "@prisma/client";
 import { prisma } from "../config/database.js";
+import { queueNotificationEmail } from "../services/email/notificationEmail.js";
 
 export interface CreateNotificationParams {
   userId: string;
@@ -7,15 +8,35 @@ export interface CreateNotificationParams {
   title: string;
   message: string;
   data?: any;
+  /**
+   * CC-40. Override the per-type email policy for this one notification.
+   * Omit it and the policy in services/email/notificationEmail.ts decides.
+   */
+  email?: boolean;
 }
 
 export async function createNotification(params: CreateNotificationParams) {
+  const { email, ...notification } = params;
+
   try {
-    console.log("Creating notification with params:", params);
     const result = await prisma.notification.create({
-      data: params,
+      data: notification,
     });
-    console.log("Notification created successfully:", result.id);
+
+    // CC-40: email is strictly ADDITIVE to the in-app notification. This is
+    // awaited so the enqueue commits before the lambda can freeze, but
+    // queueNotificationEmail never throws - a mail problem must not roll back
+    // a complaint assignment or stop the bell updating.
+    await queueNotificationEmail({
+      notificationId: result.id,
+      userId: notification.userId,
+      type: notification.type,
+      title: notification.title,
+      message: notification.message,
+      data: notification.data,
+      email,
+    });
+
     return result;
   } catch (error) {
     console.error("Error creating notification:", error);
