@@ -289,6 +289,28 @@ if (!Number.isInteger(EMAIL_MAX_ATTEMPTS) || EMAIL_MAX_ATTEMPTS <= 0) {
   fatal("EMAIL_MAX_ATTEMPTS must be a positive integer.");
 }
 
+/**
+ * Public base URL of THIS backend.
+ *
+ * Needed because the unsubscribe link is clicked from an inbox and must reach
+ * the API, which is a different origin from the frontend. Using FRONTEND_URL
+ * for it produces a link to a route the frontend does not have.
+ */
+export const PUBLIC_API_URL =
+  process.env.PUBLIC_API_URL?.trim() ||
+  "https://campus-cure-backend.vercel.app";
+
+/**
+ * CC-40 master switch for notification email.
+ *
+ * Separate from EMAIL_ENABLED on purpose: this turns off *notification* mail
+ * while leaving the CC-03 pipe available for anything else (an OTP, a test).
+ * Off means no notification ever emails, whatever the type policy or the
+ * user's own preference says.
+ */
+export const NOTIFICATION_EMAILS_ENABLED =
+  process.env.NOTIFICATION_EMAILS_ENABLED?.trim().toLowerCase() !== "false";
+
 /* ------------------------------------------------------------------ *
  * File storage (CC-02)
  *

@@ -31,6 +31,14 @@ model User {
   facultyProfile     FacultyProfile?
   studentProfile     StudentProfile?
   notifications      Notification[]
+  /// CC-40. One switch for all notification email. Transactional only - about
+  /// the user's own complaint or their own doubt - so it defaults to on.
+  emailNotifications Boolean         @default(true)
+  /// CC-40. Random per user and deliberately NOT derived from the id: an
+  /// unsubscribe link travels in clear text through mail servers, logs and
+  /// forwarded messages, so it must not expose or be forgeable from anything
+  /// else. Minted lazily on the first email.
+  unsubscribeToken   String?         @unique
   refreshTokens      RefreshToken[]
   attachments        Attachment[]
   doubtBookmarks     DoubtBookmark[]
