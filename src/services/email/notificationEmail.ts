@@ -8,7 +8,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { NotificationType } from "@prisma/client";
+import { MessageChannel, NotificationType } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { NOTIFICATION_EMAILS_ENABLED } from "../../config/env.js";
 import { enqueueEmail, triggerEmailDrainInBackground } from "./outbox.js";
@@ -103,7 +103,12 @@ export const queueNotificationEmail = async (
 
     const user = await prisma.user.findUnique({
       where: { id: request.userId },
-      select: { email: true, name: true, emailNotifications: true },
+      select: {
+        email: true,
+        name: true,
+        emailNotifications: true,
+        telegramChatId: true,
+      },
     });
 
     if (!user) return { sent: false, reason: "no-user" };
@@ -131,6 +136,19 @@ export const queueNotificationEmail = async (
       // produce a second email for the same event.
       dedupeKey: `notification:${request.notificationId}`,
     });
+
+    // CC-42: the same message on every channel the user has linked. Queued
+    // separately so one provider being down cannot stop the other, and given
+    // a distinct dedupe key so the two do not collide on the unique index.
+    if (user.telegramChatId) {
+      await enqueueEmail({
+        channel: MessageChannel.TELEGRAM,
+        to: user.telegramChatId,
+        subject: rendered.subject,
+        text: rendered.text,
+        dedupeKey: `notification:${request.notificationId}:telegram`,
+      });
+    }
 
     if (!result.queued) {
       return { sent: false, reason: result.reason ?? "not-queued" };

@@ -290,6 +290,38 @@ if (!Number.isInteger(EMAIL_MAX_ATTEMPTS) || EMAIL_MAX_ATTEMPTS <= 0) {
 }
 
 /* ------------------------------------------------------------------ *
+ * Telegram (CC-42)
+ *
+ * The second provider over CC-03's outbox. Free, instant, and gated on
+ * nothing - no domain, no DNS, no business verification - which is why it
+ * exists while Resend is still sandboxed.
+ * ------------------------------------------------------------------ */
+
+export const TELEGRAM_BOT_TOKEN =
+  process.env.TELEGRAM_BOT_TOKEN?.trim() || undefined;
+
+/** For building the t.me deep link. */
+export const TELEGRAM_BOT_USERNAME =
+  process.env.TELEGRAM_BOT_USERNAME?.trim() || undefined;
+
+/**
+ * Shared with Telegram when the webhook is registered and returned in the
+ * X-Telegram-Bot-Api-Secret-Token header.
+ *
+ * The webhook URL is public. Without this an attacker who guesses it can forge
+ * a "/start <code>" from any chat id and link their own Telegram to somebody
+ * else's account.
+ */
+export const TELEGRAM_WEBHOOK_SECRET =
+  process.env.TELEGRAM_WEBHOOK_SECRET?.trim() || undefined;
+
+export const TELEGRAM_ENABLED = Boolean(TELEGRAM_BOT_TOKEN);
+
+export const TELEGRAM_LINK_TTL_MINUTES = Number(
+  process.env.TELEGRAM_LINK_TTL_MINUTES ?? 15,
+);
+
+/* ------------------------------------------------------------------ *
  * Reputation (CC-25)
  * ------------------------------------------------------------------ */
 

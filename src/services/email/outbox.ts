@@ -12,7 +12,7 @@
  * See docs/specs/CC-03-email-infra.md.
  */
 
-import { EmailStatus, type Prisma } from "@prisma/client";
+import { EmailStatus, MessageChannel, type Prisma } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import {
   EMAIL_DRAIN_BATCH_SIZE,
@@ -20,6 +20,11 @@ import {
   EMAIL_MAX_ATTEMPTS,
 } from "../../config/env.js";
 import { PermanentEmailError, sendEmail } from "./resend.js";
+import {
+  clearDeadChat,
+  isDeadChat,
+  sendTelegram,
+} from "../notify/telegram.js";
 
 /** Long enough to diagnose, short enough not to bloat the table. */
 const MAX_ERROR_LENGTH = 500;
@@ -45,6 +50,8 @@ export interface EnqueueInput {
   dedupeKey?: string | undefined;
   /** Hold delivery until this time. Used by backoff, and by callers who want a delay. */
   scheduledAt?: Date | undefined;
+  /** CC-42. Which provider sends it. `to` is an address or a chat id. */
+  channel?: MessageChannel | undefined;
   /** Pass the surrounding transaction so the mail commits with its cause. */
   tx?: Prisma.TransactionClient | undefined;
 }
@@ -73,10 +80,21 @@ export const enqueueEmail = async (
     return { queued: false, reason: "disabled" };
   }
 
-  const to = input.to?.trim().toLowerCase() ?? "";
+  const channel = input.channel ?? MessageChannel.EMAIL;
 
-  // Caught here rather than after five failed attempts.
-  if (!LOOKS_LIKE_EMAIL.test(to)) {
+  // A Telegram chat id is a number, not an address, so the email shape check
+  // applies to the email channel only.
+  const to =
+    channel === MessageChannel.EMAIL
+      ? (input.to?.trim().toLowerCase() ?? "")
+      : (input.to?.trim() ?? "");
+
+  if (channel === MessageChannel.EMAIL && !LOOKS_LIKE_EMAIL.test(to)) {
+    // Caught here rather than after five failed attempts.
+    return { queued: false, reason: "invalid-recipient" };
+  }
+
+  if (channel === MessageChannel.TELEGRAM && !to) {
     return { queued: false, reason: "invalid-recipient" };
   }
 
@@ -87,6 +105,7 @@ export const enqueueEmail = async (
   const db = input.tx ?? prisma;
 
   const data = {
+    channel,
     to,
     subject: input.subject.trim(),
     bodyText: input.text,
@@ -153,12 +172,22 @@ export const runEmailDrain = async (): Promise<DrainResult> => {
     result.attempted += 1;
 
     try {
-      const { providerId } = await sendEmail({
-        to: row.to,
-        subject: row.subject,
-        text: row.bodyText,
-        html: row.bodyHtml ?? undefined,
-      });
+      // CC-42: one queue, two providers. Everything around this line -
+      // backoff, the attempt cap, permanent-vs-transient, dedupe - is shared.
+      const { providerId } =
+        row.channel === MessageChannel.TELEGRAM
+          ? await sendTelegram({
+              chatId: row.to,
+              text: `${row.subject}
+
+${row.bodyText}`,
+            })
+          : await sendEmail({
+              to: row.to,
+              subject: row.subject,
+              text: row.bodyText,
+              html: row.bodyHtml ?? undefined,
+            });
 
       await prisma.emailOutbox.update({
         where: { id: row.id },
@@ -192,6 +221,12 @@ export const runEmailDrain = async (): Promise<DrainResult> => {
             : { scheduledAt: backoffFor(attempts) }),
         },
       });
+
+      // A blocked bot or a deleted chat is permanent AND means the link is
+      // dead - leaving the chat id would queue messages nobody can receive.
+      if (row.channel === MessageChannel.TELEGRAM && isDeadChat(error)) {
+        await clearDeadChat(row.to).catch(() => undefined);
+      }
 
       if (permanent) {
         result.failed += 1;

@@ -8,6 +8,10 @@ import notificationRoutes from "./notifications.js";
 import studentRoutes from "./students.js";
 import privacyRoutes from "./privacy.js";
 import reputationRoutes from "./reputation.js";
+import {
+  telegramLinkRouter,
+  telegramWebhookRouter,
+} from "./telegram.js";
 import { attachmentsRouter, uploadsRouter } from "./uploads.js";
 
 const router = Router();
@@ -23,6 +27,10 @@ router.use("/api/notifications", notificationRoutes);
 router.use("/api/me", privacyRoutes);
 // CC-25: reputation, rank and the leaderboard.
 router.use("/api/reputation", reputationRoutes);
+// CC-42: linking is per-user and authenticated; the webhook is public and
+// guarded by Telegram's secret token header instead.
+router.use("/api/me", telegramLinkRouter);
+router.use("/api/telegram", telegramWebhookRouter);
 // CC-02: signing an upload, and reading a file back through a signed URL.
 router.use("/api/uploads", uploadsRouter);
 router.use("/api/attachments", attachmentsRouter);
