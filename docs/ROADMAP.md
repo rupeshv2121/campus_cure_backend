@@ -337,6 +337,7 @@ they conflict, and resolving it after both have applied locally is genuinely pai
 | CC-13 | [Duplicate complaint detection](specs/CC-13-complaint-dedup.md) | **Shipped** 2026-09-20 — complete (13/13) |
 | CC-14 | [Structured complaint intake](specs/CC-14-complaint-intake.md) | **Shipped** 2026-09-20 — complete |
 | CC-15 | [Tool-calling chatbot](specs/CC-15-chatbot.md) | **Shipped** 2026-09-20 — complete |
+| CC-03 | [Email infrastructure](specs/CC-03-email-infra.md) | **Implemented** 2026-09-21 — migration applied; needs a verified domain |
 | CC-02 | [File storage layer](specs/CC-02-file-storage.md) | **Dormant** 2026-09-21 — code complete, off pending Supabase dashboard access |
 | CC-20 | [Doubt tags](specs/CC-20-tags.md) | **Shipped** 2026-09-21 — migration applied |
 | CC-21 | [Doubt bookmarks](specs/CC-21-bookmarks.md) | **Shipped** 2026-09-21 — migration applied |
