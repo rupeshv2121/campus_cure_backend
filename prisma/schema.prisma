@@ -8,19 +8,19 @@ datasource db {
 
 model User {
   name               String
-  email              String          @unique
+  email              String            @unique
   password           String
-  userID             String          @unique @map("username")
-  university         String          @default("UNSPECIFIED")
-  isActive           Boolean         @default(false)
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  id                 String          @id @default(uuid())
+  userID             String            @unique @map("username")
+  university         String            @default("UNSPECIFIED")
+  isActive           Boolean           @default(false)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  id                 String            @id @default(uuid())
   role               Role
   approvalStatus     ApprovalStatus
   /// CC-60. DEPRECATED and cleared by encryptFaceDescriptors.ts. Kept only so
   /// the one-time migration script has something to read. Never written again.
-  faceDescriptor     Float[]         @default([])
+  faceDescriptor     Float[]           @default([])
   /// CC-60. AES-256-GCM, "iv:tag:ciphertext" in base64. Biometric template
   /// data is regulated under the DPDP Act and, unlike a password, cannot be
   /// changed by its subject once leaked. GCM rather than CBC because it
@@ -29,10 +29,10 @@ model User {
   faceDescriptorEnc  String?
   adminProfile       AdminProfile?
   answers            Answer[]
-  moderatedAnswers   Answer[]        @relation("ModeratedAnswers")
+  moderatedAnswers   Answer[]          @relation("ModeratedAnswers")
   answerUpvotes      AnswerUpvote[]
-  assignedComplaints Complaint[]     @relation("AssignedComplaints")
-  raisedComplaints   Complaint[]     @relation("RaisedComplaints")
+  assignedComplaints Complaint[]       @relation("AssignedComplaints")
+  raisedComplaints   Complaint[]       @relation("RaisedComplaints")
   doubts             Doubt[]
   doubtViews         DoubtView[]
   doubtUpvotes       DoubtUpvote[]
@@ -41,17 +41,21 @@ model User {
   notifications      Notification[]
   /// CC-40. One switch for all notification email. Transactional only - about
   /// the user's own complaint or their own doubt - so it defaults to on.
-  emailNotifications Boolean         @default(true)
+  emailNotifications Boolean           @default(true)
   /// CC-40. Random per user and deliberately NOT derived from the id: an
   /// unsubscribe link travels in clear text through mail servers, logs and
   /// forwarded messages, so it must not expose or be forgeable from anything
   /// else. Minted lazily on the first email.
-  unsubscribeToken   String?         @unique
+  unsubscribeToken   String?           @unique
   refreshTokens      RefreshToken[]
   attachments        Attachment[]
   doubtBookmarks     DoubtBookmark[]
   faceChallenges     FaceChallenge[]
   consentRecords     ConsentRecord[]
+  reputationEvents   ReputationEvent[]
+  /// CC-25. Denormalised total. ReputationEvent is the truth - this exists so
+  /// a leaderboard is one indexed sort rather than an aggregate over a ledger.
+  reputation         Int               @default(0)
   /// CC-64. Set when the data principal exercised their right to erasure.
   /// The row survives as a tombstone because deleting it is impossible
   /// (foreign keys) and undesirable (a doubt with twelve answers is not only
@@ -585,5 +589,30 @@ model ConsentRecord {
   createdAt     DateTime @default(now())
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId, createdAt])
+}
+
+/// CC-25. One row per reputation award.
+///
+/// A bare counter cannot answer "why do I have 340 points?", cannot be
+/// recomputed after a bug, and cannot be reversed when the upvote that caused
+/// it is withdrawn. The ledger can do all three.
+model ReputationEvent {
+  id         String   @id @default(uuid())
+  /// Who earned it.
+  userId     String
+  delta      Int
+  reason     String
+  sourceType String
+  sourceId   String
+  /// Who caused it - the upvoter, the accepter. Null for system awards.
+  actorId    String?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// THE ANTI-GAMING MECHANISM, not a nicety. One actor can cause one award
+  /// for one source, enforced by the database. No amount of clicking produces
+  /// a second row.
+  @@unique([userId, reason, sourceType, sourceId, actorId])
   @@index([userId, createdAt])
 }

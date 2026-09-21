@@ -54,6 +54,18 @@ import {
   recordConsent,
 } from "../../services/privacy/dataRights.js";
 
+
+/**
+ * First argument of a mock's first (or nth) call.
+ *
+ * Wrapped because `noUncheckedIndexedAccess` makes every `mock.calls[n][0]` a
+ * possibly-undefined access, which would otherwise need assertions at each of
+ * the sites below.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const argOf = (fn: { mock: { calls: any[][] } }, call = 0): any =>
+  fn.mock.calls[call]![0];
+
 const account = (over: Record<string, unknown> = {}) => ({
   id: "u-1",
   name: "Ravi Kumar",
@@ -89,7 +101,7 @@ describe("consent", () => {
   it("records what the user was actually shown", async () => {
     await recordConsent({ userId: "u-1", granted: true, ip: "10.0.0.1" });
 
-    const data = db.prisma.consentRecord.create.mock.calls[0]![0].data;
+    const data = argOf(db.prisma.consentRecord.create, 0).data;
     expect(data.granted).toBe(true);
     expect(data.policyVersion).toBe("2026-09-21");
     expect(data.purposes).toEqual([...CONSENT_PURPOSES]);
@@ -108,7 +120,7 @@ describe("consent", () => {
 
     await expect(hasCurrentConsent("u-1")).resolves.toBe(false);
     expect(
-      db.prisma.consentRecord.findFirst.mock.calls[0]![0].where.policyVersion,
+      argOf(db.prisma.consentRecord.findFirst, 0).where.policyVersion,
     ).toBe("2026-09-21");
   });
 
@@ -190,10 +202,10 @@ describe("exportUserData", () => {
   it("scopes every query to the one user", async () => {
     await exportUserData("u-1");
 
-    expect(db.prisma.complaint.findMany.mock.calls[0]![0].where).toEqual({
+    expect(argOf(db.prisma.complaint.findMany, 0).where).toEqual({
       raisedById: "u-1",
     });
-    expect(db.prisma.doubt.findMany.mock.calls[0]![0].where).toEqual({
+    expect(argOf(db.prisma.doubt.findMany, 0).where).toEqual({
       postedById: "u-1",
     });
   });
@@ -208,7 +220,7 @@ describe("eraseUser", () => {
     });
   });
 
-  const erasedData = () => db.prisma.user.update.mock.calls[0]![0].data;
+  const erasedData = () => argOf(db.prisma.user.update, 0).data;
 
   it("throws for an unknown user", async () => {
     db.prisma.user.findUnique.mockResolvedValueOnce(null);
@@ -255,7 +267,7 @@ describe("eraseUser", () => {
   it("clears contact details including guardian data", async () => {
     await eraseUser("u-1");
 
-    const student = db.prisma.studentProfile.updateMany.mock.calls[0]![0].data;
+    const student = argOf(db.prisma.studentProfile.updateMany, 0).data;
     expect(student).toEqual({
       phoneNumber: "",
       address: "",
@@ -287,7 +299,7 @@ describe("eraseUser", () => {
   it("deletes queued and sent mail addressed to them", async () => {
     await eraseUser("u-1");
 
-    expect(db.prisma.emailOutbox.deleteMany.mock.calls[0]![0].where).toEqual({
+    expect(argOf(db.prisma.emailOutbox.deleteMany, 0).where).toEqual({
       to: "ravi@example.edu",
     });
   });
