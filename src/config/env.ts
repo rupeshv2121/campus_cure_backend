@@ -290,6 +290,57 @@ if (!Number.isInteger(EMAIL_MAX_ATTEMPTS) || EMAIL_MAX_ATTEMPTS <= 0) {
 }
 
 /* ------------------------------------------------------------------ *
+ * SLA and escalation (CC-31)
+ * ------------------------------------------------------------------ */
+
+/** Off means no deadline is ever set and the sweep no-ops. */
+export const SLA_ENABLED =
+  process.env.SLA_ENABLED?.trim().toLowerCase() !== "false";
+
+/**
+ * Scales every budget.
+ *
+ * Exists mostly for demos and tests: at 0.001 a critical complaint breaches in
+ * about fifteen seconds, so the escalation ladder can be shown working without
+ * waiting four hours. Also the lever for tuning the budgets - which are
+ * guesses - without a deploy.
+ */
+export const SLA_MULTIPLIER = Number(process.env.SLA_MULTIPLIER ?? 1);
+
+/** Escalations before the super admin takes ownership. */
+export const SLA_MAX_ESCALATIONS = Number(
+  process.env.SLA_MAX_ESCALATIONS ?? 2,
+);
+
+/**
+ * Minimum gap between two escalations of one complaint.
+ *
+ * Without this, a complaint that stays overdue escalates on every sweep and
+ * the admin queue becomes a stream of the same three complaints.
+ */
+export const SLA_ESCALATION_COOLDOWN_HOURS = Number(
+  process.env.SLA_ESCALATION_COOLDOWN_HOURS ?? 24,
+);
+
+/** Silence before a student is nudged to confirm a resolution. */
+export const SLA_CONFIRMATION_REMINDER_HOURS = Number(
+  process.env.SLA_CONFIRMATION_REMINDER_HOURS ?? 72,
+);
+
+/** Complaints handled per sweep. Bounds the blast radius of one bad run. */
+export const SLA_SWEEP_BATCH_SIZE = Number(
+  process.env.SLA_SWEEP_BATCH_SIZE ?? 50,
+);
+
+if (!(SLA_MULTIPLIER > 0)) {
+  fatal("SLA_MULTIPLIER must be greater than 0.");
+}
+
+if (!Number.isInteger(SLA_MAX_ESCALATIONS) || SLA_MAX_ESCALATIONS < 1) {
+  fatal("SLA_MAX_ESCALATIONS must be a positive integer.");
+}
+
+/* ------------------------------------------------------------------ *
  * Face login (CC-60)
  *
  * Face is the SECOND factor, never the first. The descriptor is computed in

@@ -240,6 +240,17 @@ model Complaint {
   assignmentHistory       Json                        @default("[]")
   assignedAt              DateTime?
   pendingConfirmationAt   DateTime?
+  /// CC-31. When staff are next due to have acted. Written when the clock
+  /// starts - on create, and again on assignment - rather than derived on
+  /// every sweep, so the sweep is one indexed query and an admin can be shown
+  /// "due in 3 hours" without the frontend reimplementing the policy.
+  ///
+  /// NULL means no staff clock is running: resolved, escalated to the top, or
+  /// waiting on the student.
+  slaDueAt                DateTime?
+  /// CC-31. Cooldown anchor, so a breached complaint escalates once per
+  /// cooldown rather than once per sweep.
+  lastEscalationAt        DateTime?
   createdAt               DateTime                    @default(now())
   updatedAt               DateTime                    @updatedAt
   /// CC-13. Same contract as Doubt.embedding: invisible to the typed client,
@@ -250,6 +261,9 @@ model Complaint {
   embeddedAt              DateTime?
   assignedTo              User?                       @relation("AssignedComplaints", fields: [assignedToId], references: [id])
   raisedBy                User                        @relation("RaisedComplaints", fields: [raisedById], references: [id])
+
+  /// CC-31: drives the nightly overdue sweep.
+  @@index([status, slaDueAt])
 }
 
 /// CC-01b: a revocable session behind a short-lived access token.

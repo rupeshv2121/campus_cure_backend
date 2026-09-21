@@ -23,6 +23,7 @@ import {
   confirmAttachments,
   listForEntities,
 } from "../services/storage/attachments.js";
+import { initialSlaDueAt } from "../services/sla/policy.js";
 import {
   createNotification,
   notifyComplaintStatusChange,
@@ -464,6 +465,9 @@ export const raiseComplaint = async (
           priority,
           classroomNumber,
           block,
+          // CC-31: the clock starts the moment it is filed. Assignment budget,
+          // because until someone assigns it an admin is the one holding it.
+          slaDueAt: initialSlaDueAt(Number(priority)),
           raisedBy: { connect: { id: req.user!.id } },
         },
       });
@@ -619,6 +623,9 @@ export const getComplaints = async (
         feedbackComment: true,
         studentRejectionMessage: true,
         escalationCount: true,
+        // CC-31: so a student can see when their complaint is due, without
+        // the frontend reimplementing the policy.
+        slaDueAt: true,
         assignmentHistory: true,
         raisedBy: {
           select: {
