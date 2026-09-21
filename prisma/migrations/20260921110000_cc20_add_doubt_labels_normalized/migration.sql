@@ -9,23 +9,39 @@ ALTER TABLE "Doubt" ADD COLUMN "labelsNormalized" TEXT[] DEFAULT ARRAY[]::TEXT[]
 
 -- Backfill existing rows.
 --
--- Must match normalizeTag() in src/utils/tags.ts: lowercase, trim, collapse
--- internal whitespace to "-", strip anything outside [a-z0-9-+#.]. If the two
--- ever diverge, re-run `npx tsx src/scripts/normalizeDoubtLabels.ts`, which is
--- authoritative and idempotent.
-UPDATE "Doubt"
+-- Mirrors normalizeTag() in src/utils/tags.ts: lowercase, trim, collapse
+-- internal whitespace to "-", strip anything outside [a-z0-9-+#.].
+--
+-- TWO THINGS HERE ARE DELIBERATE AND EASY TO GET WRONG:
+--
+-- 1. POSIX classes ([[:space:]]), never "\s". A backslash escape in this path
+--    is fragile - depending on how the statement is constructed it can be
+--    consumed before Postgres sees it, at which point the pattern silently
+--    becomes "s+" and every tag containing the letter s is corrupted
+--    ("Sorting" -> "-orting"). POSIX classes contain no backslash, so they
+--    cannot be eaten.
+--
+-- 2. WITH ORDINALITY and no DISTINCT, so the result is the same length and
+--    order as "labels". The frontend reads labelsNormalized[i] as the lookup
+--    key for labels[i]; array_agg(DISTINCT ...) re-sorts and dedupes, which
+--    would silently pair a tag with another tag's canonical casing.
+--
+-- A label that normalizes to nothing (e.g. "!!!") is kept as an empty string
+-- rather than dropped, again to hold alignment. Nothing filters on "", and
+-- buildVocabulary() skips it. New writes drop such a label from both columns,
+-- which they can do because they control both.
+UPDATE "Doubt" d
 SET "labelsNormalized" = COALESCE((
-  SELECT array_agg(DISTINCT n)
-  FROM (
-    SELECT regexp_replace(
-             regexp_replace(lower(btrim(label)), '\s+', '-', 'g'),
-             '[^a-z0-9\-+#.]', '', 'g'
-           ) AS n
-    FROM unnest("labels") AS label
-  ) cleaned
-  WHERE n <> ''
+  SELECT array_agg(
+           regexp_replace(
+             regexp_replace(lower(btrim(label)), '[[:space:]]+', '-', 'g'),
+             '[^a-z0-9+#.-]', '', 'g'
+           )
+           ORDER BY ord
+         )
+  FROM unnest(d."labels") WITH ORDINALITY AS t(label, ord)
 ), ARRAY[]::TEXT[])
-WHERE array_length("labels", 1) IS NOT NULL;
+WHERE array_length(d."labels", 1) IS NOT NULL;
 
 -- GIN supports the array-containment operator the tag filter uses. Without it
 -- `hasEvery` degrades to a sequential scan.
