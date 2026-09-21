@@ -338,8 +338,8 @@ they conflict, and resolving it after both have applied locally is genuinely pai
 | CC-14 | [Structured complaint intake](specs/CC-14-complaint-intake.md) | **Shipped** 2026-09-20 — complete |
 | CC-15 | [Tool-calling chatbot](specs/CC-15-chatbot.md) | **Shipped** 2026-09-20 — complete |
 | CC-02 | [File storage layer](specs/CC-02-file-storage.md) | **Dormant** 2026-09-21 — code complete, off pending Supabase dashboard access |
-| CC-20 | [Doubt tags](specs/CC-20-tags.md) | **Implemented** 2026-09-21 — migration not yet applied |
-| CC-21 | [Doubt bookmarks](specs/CC-21-bookmarks.md) | **Implemented** 2026-09-21 — migration not yet applied |
+| CC-20 | [Doubt tags](specs/CC-20-tags.md) | **Shipped** 2026-09-21 — migration applied |
+| CC-21 | [Doubt bookmarks](specs/CC-21-bookmarks.md) | **Shipped** 2026-09-21 — migration applied |
 | CC-22 | [Code syntax highlighting](specs/CC-22-code-highlighting.md) | **Implemented** 2026-09-21 — pending review/merge |
 | — | [Spec template](specs/TEMPLATE.md) | — |
 

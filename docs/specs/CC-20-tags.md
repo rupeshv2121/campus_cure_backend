@@ -2,14 +2,14 @@
 
 | | |
 |---|---|
-| **Status** | **Implemented 2026-09-21** — migration NOT applied; pending review/merge |
+| **Status** | **Shipped 2026-09-21** — migration applied |
 | **Phase** | 2 |
 | **Branch** | `feat/CC-20-tags` |
 | **Repos** | both |
 | **Depends on** | none |
 | **Blocks** | nothing |
 | **Estimate** | 1.5 days |
-| **Shipped** | — |
+| **Shipped** | 2026-09-21 |
 
 ## Problem
 
@@ -277,10 +277,23 @@ Registered **before** `/doubts/:id` in `src/routes/students.ts`, or `tags` is ca
 Built. 27 unit tests for `src/utils/tags.ts` plus route coverage in
 `bookmarks.test.ts` (the vocabulary endpoint shares the shadowing test).
 
-**The migration has not been run.** `prisma/migrations/20260921110000_cc20_add_doubt_labels_normalized`
-is written and additive, but nobody has applied it — every environment still has a
-`Doubt` table with no `labelsNormalized` column, so the tag filter and vocabulary
-endpoint will error until someone runs `npx prisma migrate deploy`. Announce it first.
+**Migration applied 2026-09-21** via `prisma migrate deploy` (never `migrate dev` —
+that offers to reset, and this connection is production). Verified afterwards: the
+column exists, no row is NULL, `labels` is byte-identical to before, and every row has
+`array_length(labels) = array_length(labelsNormalized)`.
+
+Two bugs in the backfill were caught by probing the expression against live data
+read-only *before* applying, and both were silent:
+
+- `'\s+'` can lose its backslash before Postgres sees it, leaving `s+` — which
+  turned `Sorting` into `-orting`. Replaced with the POSIX class `[[:space:]]+`,
+  which has no backslash to lose.
+- `array_agg(DISTINCT ...)` re-sorts and dedupes, so the two columns came out
+  different lengths — and the frontend reads `labelsNormalized[i]` as the key for
+  `labels[i]`. Replaced with `WITH ORDINALITY ... ORDER BY ord`.
+
+Neither would have thrown. The first corrupts tags containing "s"; the second pairs a
+tag with another tag's canonical casing.
 
 The backfill lives in the migration SQL rather than only in a script, so a fresh
 database and an existing one converge. `src/scripts/normalizeDoubtLabels.ts` is still
