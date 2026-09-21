@@ -24,6 +24,7 @@ import {
   listForEntities,
 } from "../services/storage/attachments.js";
 import { initialSlaDueAt } from "../services/sla/policy.js";
+import { prepareContent } from "../services/content/sanitize.js";
 import {
   ReputationReason,
   awardReputation,
@@ -762,8 +763,20 @@ export const postDoubt = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const { title, description, semester, subject, labels, attachmentIds } =
-      req.body;
+    const {
+      title,
+      description,
+      semester,
+      subject,
+      labels,
+      attachmentIds,
+      descriptionFormat,
+    } = req.body;
+
+    // CC-23: sanitised HERE, on the server, on write. The editor is a
+    // convenience - this endpoint accepts whatever a client sends, and
+    // sanitising on read would leave the dangerous string in the database.
+    const preparedDescription = prepareContent(description, descriptionFormat);
 
     if (!title || !description || !semester || !subject) {
       res.status(400).json({
@@ -785,7 +798,8 @@ export const postDoubt = async (
       prisma.doubt.create({
         data: {
           title,
-          description,
+          description: preparedDescription.value,
+          descriptionFormat: preparedDescription.format,
           semester,
           subject,
           // CC-20: both columns from one helper so they cannot drift.
@@ -1712,7 +1726,9 @@ export const postAnswer = async (
 ): Promise<void> => {
   try {
     const doubtId = req.params.doubtId as string;
-    const { content, attachmentIds } = req.body;
+    const { content, attachmentIds, contentFormat } = req.body;
+
+    const preparedAnswer = prepareContent(content, contentFormat);
 
     if (!content) {
       res.status(400).json({ error: "Content is required" });
@@ -1740,7 +1756,8 @@ export const postAnswer = async (
     const [answer] = await prisma.$transaction([
       prisma.answer.create({
         data: {
-          content,
+          content: preparedAnswer.value,
+          contentFormat: preparedAnswer.format,
           doubtId,
           answeredById: req.user!.id,
           approvalStatus: ApprovalStatus.PENDING,

@@ -7,7 +7,9 @@
  * leaking into controllers. See docs/specs/CC-10-embedding-infra.md.
  */
 import { Prisma } from "@prisma/client";
+import { ContentFormat } from "@prisma/client";
 import { prisma } from "../config/database.js";
+import { toPlainText } from "../services/content/sanitize.js";
 import { EMBEDDING_DIMENSIONS, HF_EMBEDDING_MODEL } from "../config/env.js";
 
 export type EntityType = "doubt" | "complaint" | "answer";
@@ -380,6 +382,8 @@ export interface DoubtText {
   id: string;
   title: string;
   description: string;
+  /** CC-23. Absent for complaints, which have no rich text. */
+  descriptionFormat?: ContentFormat | null;
 }
 
 /** Fetch the text to embed for a set of doubts. */
@@ -388,7 +392,13 @@ export const getDoubtTexts = async (ids: string[]): Promise<DoubtText[]> => {
   return prisma.doubt.findMany({
     where: { id: { in: ids } },
     // Explicit select: never pull `embedding` into application memory.
-    select: { id: true, title: true, description: true },
+    // CC-23: the format comes too, so buildEmbeddingText can strip tags.
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      descriptionFormat: true,
+    },
   });
 };
 
