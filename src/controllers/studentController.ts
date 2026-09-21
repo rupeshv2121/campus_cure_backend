@@ -762,7 +762,8 @@ export const postDoubt = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const { title, description, semester, subject, labels } = req.body;
+    const { title, description, semester, subject, labels, attachmentIds } =
+      req.body;
 
     if (!title || !description || !semester || !subject) {
       res.status(400).json({
@@ -817,13 +818,25 @@ export const postDoubt = async (
 
     // CC-10: queue the doubt for embedding, then return immediately.
     // Never inline: a provider cold start is 20+ seconds, and an AI outage must
+    // CC-24: bind any uploaded files now the doubt exists and has an id.
+    // Inert while CC-02 is dormant - confirmAttachments refuses with a 503
+    // that the catch below turns into a clean error rather than a 500.
+    if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
+      await confirmAttachments({
+        attachmentIds,
+        entityType: AttachmentEntity.DOUBT,
+        entityId: doubt.id,
+        userId: req.user!.id,
+      });
+    }
+
     // never stop a student posting a doubt. requestEmbedding does not throw.
     await requestEmbedding("doubt", doubt.id);
     triggerDrainInBackground();
 
     res.status(201).json({ message: "Doubt posted successfully", doubt });
   } catch (error) {
-    if (error instanceof TagError) {
+    if (error instanceof TagError || error instanceof AttachmentError) {
       res.status(error.status).json({ error: error.message });
       return;
     }
@@ -1208,10 +1221,37 @@ export const getDoubtById = async (
     // CC-21: same missing-table tolerance as the upvote read above.
     const bookmarkedIds = await readBookmarkedIds(userId, [id]);
 
+    // CC-24: the doubt's own files, and each answer's. Batched, and empty
+    // while CC-02 is dormant - listForEntities returns an empty map without
+    // querying when storage is off.
+    const [doubtFiles, answerFiles] = await Promise.all([
+      listForEntities(AttachmentEntity.DOUBT, [id]),
+      listForEntities(
+        AttachmentEntity.ANSWER,
+        answersWithUpvoteStatus.map((answer) => answer.id),
+      ),
+    ]);
+
+    const fileSummary = (rows: Array<Record<string, unknown>> = []) =>
+      rows.map(({ id: fileId, mimeType, originalName, sizeBytes }) => ({
+        id: fileId,
+        mimeType,
+        originalName,
+        sizeBytes,
+      }));
+
     res.json({
       doubt: {
         ...doubt,
-        answers: answersWithUpvoteStatus,
+        answers: answersWithUpvoteStatus.map((answer) => ({
+          ...answer,
+          attachments: fileSummary(
+            answerFiles.get(answer.id) as unknown as Array<Record<string, unknown>>,
+          ),
+        })),
+        attachments: fileSummary(
+          doubtFiles.get(id) as unknown as Array<Record<string, unknown>>,
+        ),
         isUpvotedByUser: Boolean(doubtUpvote),
         isBookmarkedByUser: bookmarkedIds.has(id),
       },
@@ -1672,7 +1712,7 @@ export const postAnswer = async (
 ): Promise<void> => {
   try {
     const doubtId = req.params.doubtId as string;
-    const { content } = req.body;
+    const { content, attachmentIds } = req.body;
 
     if (!content) {
       res.status(400).json({ error: "Content is required" });
@@ -1739,11 +1779,28 @@ export const postAnswer = async (
       }),
     ]);
 
+    // CC-24: bind uploaded files now the answer has an id.
+    if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
+      await confirmAttachments({
+        attachmentIds,
+        entityType: AttachmentEntity.ANSWER,
+        entityId: answer.id,
+        userId: req.user!.id,
+      });
+    }
+
     // Note: Notification is sent only when answer is approved by faculty,
     // not when posted (to avoid notifying about pending answers)
 
     res.status(201).json({ message: "Answer posted successfully", answer });
   } catch (error) {
+    // A rejected attachment is the student's to fix - wrong file, upload
+    // never finished, storage not configured - not a server fault.
+    if (error instanceof AttachmentError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+
     console.error("Error posting answer:", error);
     res.status(500).json({ error: "Internal server error" });
   }
