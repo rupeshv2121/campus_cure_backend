@@ -289,6 +289,70 @@ if (!Number.isInteger(EMAIL_MAX_ATTEMPTS) || EMAIL_MAX_ATTEMPTS <= 0) {
   fatal("EMAIL_MAX_ATTEMPTS must be a positive integer.");
 }
 
+/* ------------------------------------------------------------------ *
+ * Face login (CC-60)
+ *
+ * Face is the SECOND factor, never the first. The descriptor is computed in
+ * the browser, so anyone can POST 128 floats without a camera - which makes
+ * face-as-a-first-factor a bearer secret derived from a photograph. The
+ * password is what actually guards the account; this step raises the cost of
+ * the casual attack on top of it.
+ * ------------------------------------------------------------------ */
+
+/**
+ * 32 bytes, base64. Generate: openssl rand -base64 32
+ *
+ * Absent means face login is OFF - enrolment refuses and the password step
+ * never asks for a face. A half-configured biometric path is worse than none,
+ * the same reasoning as CC-02 and CC-03.
+ */
+export const FACE_ENCRYPTION_KEY =
+  process.env.FACE_ENCRYPTION_KEY?.trim() || undefined;
+
+export const FACE_LOGIN_ENABLED = Boolean(FACE_ENCRYPTION_KEY);
+
+/**
+ * Max euclidean distance for a 1:1 match.
+ *
+ * Tighter than face-api.js's usual 0.6, which is tuned for 1:N identification
+ * where a miss is an inconvenience. This guards a session, and a false accept
+ * is worse than a retry.
+ */
+export const FACE_MATCH_THRESHOLD = Number(
+  process.env.FACE_MATCH_THRESHOLD ?? 0.5,
+);
+
+/**
+ * Minimum pairwise distance between submitted samples.
+ *
+ * A photograph held to a camera produces near-identical descriptors frame
+ * after frame. NOT calibrated against real captures yet - see the spec's open
+ * questions. Raise it only with measurements.
+ */
+export const FACE_LIVENESS_MIN_VARIANCE = Number(
+  process.env.FACE_LIVENESS_MIN_VARIANCE ?? 0.02,
+);
+
+export const FACE_CHALLENGE_TTL_SECONDS = Number(
+  process.env.FACE_CHALLENGE_TTL_SECONDS ?? 120,
+);
+
+/** Verifies allowed per challenge before it is dead. */
+export const FACE_MAX_ATTEMPTS = Number(process.env.FACE_MAX_ATTEMPTS ?? 3);
+
+/** Samples the client must submit, from separate moments. */
+export const FACE_REQUIRED_SAMPLES = Number(
+  process.env.FACE_REQUIRED_SAMPLES ?? 3,
+);
+
+if (FACE_MATCH_THRESHOLD <= 0 || FACE_MATCH_THRESHOLD >= 1) {
+  fatal("FACE_MATCH_THRESHOLD must be between 0 and 1.");
+}
+
+if (!Number.isInteger(FACE_MAX_ATTEMPTS) || FACE_MAX_ATTEMPTS <= 0) {
+  fatal("FACE_MAX_ATTEMPTS must be a positive integer.");
+}
+
 /**
  * Public base URL of THIS backend.
  *

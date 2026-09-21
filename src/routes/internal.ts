@@ -5,6 +5,7 @@ import { getEmbeddingStats } from "../repositories/embeddingRepository.js";
 import { runEmbeddingDrain } from "../services/ai/embeddingWorker.js";
 import { runDraftGeneration } from "../services/ai/answerDraft.js";
 import { purgeExpiredRefreshTokens } from "../services/auth/refreshTokens.js";
+import { purgeExpiredFaceChallenges } from "../services/auth/faceChallenge.js";
 import { sweepAttachments } from "../services/storage/attachments.js";
 import {
   enqueueEmail,
@@ -217,6 +218,11 @@ const dailyHandler = async (req: Request, res: Response): Promise<void> => {
   // sent by the opportunistic drain within a second of being queued; this
   // catches anything left PENDING because a lambda froze mid-drain.
   await step("emails", () => runEmailDrain());
+  // CC-60: face challenges are short-lived by design; expired rows are just
+  // litter, but litter that accumulates once per failed login.
+  await step("purgedFaceChallenges", async () => ({
+    deleted: await purgeExpiredFaceChallenges(),
+  }));
 
   res.json(results);
 };
