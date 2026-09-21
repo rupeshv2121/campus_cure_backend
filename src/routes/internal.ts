@@ -7,6 +7,7 @@ import { runDraftGeneration } from "../services/ai/answerDraft.js";
 import { purgeExpiredRefreshTokens } from "../services/auth/refreshTokens.js";
 import { purgeExpiredFaceChallenges } from "../services/auth/faceChallenge.js";
 import { getSlaStats, runSlaSweep } from "../services/sla/escalation.js";
+import { runRetentionSweep } from "../services/privacy/retention.js";
 import { sweepAttachments } from "../services/storage/attachments.js";
 import {
   enqueueEmail,
@@ -266,6 +267,9 @@ const dailyHandler = async (req: Request, res: Response): Promise<void> => {
   await step("purgedFaceChallenges", async () => ({
     deleted: await purgeExpiredFaceChallenges(),
   }));
+  // CC-64: purpose limitation. Only the mechanical tables are on a clock -
+  // complaints, doubts, answers and audit rows are deliberately not.
+  await step("retention", () => runRetentionSweep());
 
   res.json(results);
 };

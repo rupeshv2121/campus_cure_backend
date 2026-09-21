@@ -79,6 +79,25 @@ const ROUTES: RouteCase[] = [
   },
   // CC-15: the chatbot exposes student-scoped tools, so only students reach it.
   { method: "post", path: "/api/chat/", allow: ["STUDENT"] },
+  // CC-64: data principal rights act on the CALLER'S OWN data, so every
+  // authenticated role reaches them. There is deliberately no admin route to
+  // export or erase somebody else - those are rights a person exercises, and
+  // an "erase this user" button is a weapon.
+  {
+    method: "get",
+    path: "/api/me/consent",
+    allow: ["STUDENT", "FACULTY", "ADMIN", "SUPER_ADMIN"],
+  },
+  {
+    method: "get",
+    path: "/api/me/data-export",
+    allow: ["STUDENT", "FACULTY", "ADMIN", "SUPER_ADMIN"],
+  },
+  {
+    method: "post",
+    path: "/api/me/erase",
+    allow: ["STUDENT", "FACULTY", "ADMIN", "SUPER_ADMIN"],
+  },
   // CC-61: the audit trail is SUPER_ADMIN only. Most entries are about ADMIN
   // behaviour, and a trail the audited party can read is one they can learn to
   // work around - so ADMIN is excluded deliberately, not by oversight.
