@@ -41,6 +41,13 @@ const ROUTES: RouteCase[] = [
   { method: "get", path: "/api/students/me", allow: ["STUDENT"] },
   // CC-14: intake parsing costs provider quota, so it is students only.
   { method: "post", path: "/api/students/complaints/parse", allow: ["STUDENT"] },
+  // CC-50: same reasoning as CC-14, and more so - a vision call is the most
+  // expensive request in the API. Students only.
+  {
+    method: "post",
+    path: "/api/students/doubts/from-image",
+    allow: ["STUDENT"],
+  },
   {
     method: "get",
     path: "/api/students/settings/posting",
@@ -142,6 +149,21 @@ const ROUTES: RouteCase[] = [
     method: "get",
     path: "/api/attachments/some-id",
     allow: ["STUDENT", "FACULTY", "ADMIN", "SUPER_ADMIN"],
+  },
+  // CC-27: every authenticated role, deliberately. The point of the directory
+  // is that a student with a flooded bathroom can find the plumber - so a
+  // guard narrower than this would defeat the feature. Authenticated, though:
+  // unauthenticated it would be a scraper's list of staff names and numbers.
+  {
+    method: "get",
+    path: "/api/staff/directory",
+    allow: ["STUDENT", "FACULTY", "ADMIN", "SUPER_ADMIN"],
+  },
+  // CC-27: assignment is an admin action, so the ranked candidate list is too.
+  {
+    method: "get",
+    path: "/api/admin/complaints/some-id/candidates",
+    allow: ["ADMIN", "SUPER_ADMIN"],
   },
 ];
 

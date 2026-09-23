@@ -92,6 +92,10 @@ model StudentProfile {
   user                  User     @relation(fields: [userId], references: [id])
 }
 
+/// Despite the name this row backs BOTH teaching and non-teaching staff
+/// (CC-27). Renaming a model whose table holds live rows, mid-project, for
+/// accuracy alone is a worse trade than a name that is slightly wrong -
+/// the same call already recorded on EmailOutbox.
 model FacultyProfile {
   id           String   @id @default(uuid())
   userId       String   @unique
@@ -99,12 +103,37 @@ model FacultyProfile {
   branch       String
   phoneNumber  String
   address      String
+  /// Existed before CC-27 and was settable, but nothing ever READ it: the
+  /// assignment list returned every approved faculty member regardless. That
+  /// is how a broken fan got routed to a lecturer.
   isTeaching   Boolean  @default(true)
   subjects     String[]
+  /// CC-27. What this person is: "Electrician", "Plumber", "Lab Assistant".
+  /// Free text rather than an enum because a college's job titles are not ours
+  /// to enumerate, and an unknown title must not be unrepresentable.
+  /// Display only - routing uses handlesCategories, which is checkable.
+  staffRole    String?
+  /// CC-27. Which CC-14 complaint categories this person actually handles.
+  ///
+  /// THE routing field. Empty means "not a routing target", which is the right
+  /// default for a lecturer: absence of a claim, not a claim of absence.
+  /// Values are CC-14 categories (FAN, LIGHT, SMART_BOARD, NETWORK, SEATING,
+  /// FURNITURE, OTHER) so intake and routing cannot drift apart.
+  handlesCategories String[] @default([])
+  /// CC-27. Opt-in, and false by default.
+  ///
+  /// The roadmap cut a student directory as a harassment vector over data
+  /// those students never offered. Staff contact details are a legitimate
+  /// need, but consent is what separates the two - so this is off until the
+  /// person turns it on, and a profile that is off is invisible to the
+  /// directory rather than merely redacted.
+  directoryOptIn Boolean @default(false)
   doubtsSolved Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   user         User     @relation(fields: [userId], references: [id])
+
+  @@index([handlesCategories], type: Gin)
 }
 
 model AdminProfile {
@@ -152,6 +181,18 @@ model Doubt {
   answerCount       Int                         @default(0)
   acceptedAnswerId  String?
   edited            Boolean                     @default(false)
+  /// CC-50. True when the description was transcribed from a photograph by a
+  /// vision model rather than typed. The student always edits and submits it
+  /// themselves, so this is not a claim about authorship - it is a warning to
+  /// the READER. A transcription can be confidently wrong in a way typed text
+  /// cannot: a misread exponent produces a question that is answerable but not
+  /// the one that was asked, and only the attached original shows the
+  /// difference.
+  transcribedFromImage Boolean                  @default(false)
+  /// The vision model that produced it. Kept for the same reason
+  /// `embeddingModel` is kept: when a transcription turns out to be wrong,
+  /// "which model read this" is the first question.
+  transcriptionModel   String?
   createdAt         DateTime                    @default(now())
   updatedAt         DateTime                    @updatedAt
   editHistory       Json                        @default("[]")

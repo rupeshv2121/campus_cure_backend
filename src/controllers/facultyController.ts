@@ -5,6 +5,17 @@ import { generateDraftForDoubt } from "../services/ai/answerDraft.js";
 import type { AuthRequest } from "../types/index.js";
 import { computeSlaDueAt } from "../services/sla/policy.js";
 import {
+  ROUTABLE_CATEGORIES,
+  isRoutableCategory,
+  listDirectory,
+  rankCandidates,
+} from "../services/staff/routing.js";
+import { AttachmentError } from "../services/storage/attachments.js";
+import {
+  attachResolutionEvidence,
+  withEvidence,
+} from "../services/storage/resolutionEvidence.js";
+import {
   ReputationReason,
   awardReputation,
 } from "../services/reputation/reputation.js";
@@ -134,8 +145,18 @@ export const updateFacultyProfile = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const { department, branch, phoneNumber, address, subjects, isTeaching } =
-      req.body;
+    const {
+      department,
+      branch,
+      phoneNumber,
+      address,
+      subjects,
+      isTeaching,
+      // CC-27
+      staffRole,
+      handlesCategories,
+      directoryOptIn,
+    } = req.body;
 
     const data: {
       department?: string;
@@ -144,6 +165,9 @@ export const updateFacultyProfile = async (
       address?: string;
       subjects?: string[];
       isTeaching?: boolean;
+      staffRole?: string | null;
+      handlesCategories?: string[];
+      directoryOptIn?: boolean;
     } = {};
 
     if (department !== undefined) {
@@ -198,6 +222,56 @@ export const updateFacultyProfile = async (
         data.isTeaching = isTeaching === "true";
       } else {
         res.status(400).json({ error: "isTeaching must be a boolean" });
+        return;
+      }
+    }
+
+    // CC-27: what this person is. Display only - routing never reads it,
+    // because free text cannot be checked.
+    if (staffRole !== undefined) {
+      const trimmed = String(staffRole).trim().slice(0, 80);
+      data.staffRole = trimmed.length > 0 ? trimmed : null;
+    }
+
+    // CC-27: what this person actually handles. THE routing field, so unlike
+    // staffRole every value is validated against CC-14's vocabulary - an
+    // unrecognised category here would be a silent routing dead end, matching
+    // nothing and explaining nothing.
+    if (handlesCategories !== undefined) {
+      if (!Array.isArray(handlesCategories)) {
+        res
+          .status(400)
+          .json({ error: "handlesCategories must be an array" });
+        return;
+      }
+
+      const normalized = [
+        ...new Set(handlesCategories.map((entry) => String(entry).trim().toUpperCase())),
+      ];
+      const unknown = normalized.filter((entry) => !isRoutableCategory(entry));
+
+      if (unknown.length > 0) {
+        res.status(400).json({
+          error:
+            `Unknown complaint categories: ${unknown.join(", ")}. ` +
+            `Allowed: ${ROUTABLE_CATEGORIES.join(", ")}`,
+        });
+        return;
+      }
+
+      data.handlesCategories = normalized;
+    }
+
+    // CC-27: consent, and only the subject may give it. There is no admin
+    // route that sets this for someone else - that is the whole difference
+    // between a staff directory and the student people-finder the roadmap cut.
+    if (directoryOptIn !== undefined) {
+      if (typeof directoryOptIn === "boolean") {
+        data.directoryOptIn = directoryOptIn;
+      } else if (directoryOptIn === "true" || directoryOptIn === "false") {
+        data.directoryOptIn = directoryOptIn === "true";
+      } else {
+        res.status(400).json({ error: "directoryOptIn must be a boolean" });
         return;
       }
     }
@@ -270,7 +344,11 @@ export const assignedComplaints = async (
       },
       orderBy: { createdAt: "desc" },
     });
-    res.json({ complaints });
+
+    // CC-30: the photograph is the point. A faculty member assigned "the
+    // third-row chair in ML02 is broken" previously had the text and nothing
+    // else, which is precisely the round trip this feature removes.
+    res.json({ complaints: await withEvidence(complaints) });
   } catch (error) {
     console.error("Get assigned complaints error:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -284,7 +362,7 @@ export const updateComplaintStatus = async (
 ): Promise<void> => {
   try {
     const complaintId = req.params.complaintId as string;
-    const { status, resolutionNote } = req.body;
+    const { status, resolutionNote, resolutionAttachmentIds } = req.body;
 
     if (!complaintId || !status) {
       res.status(400).json({ error: "Complaint ID and status are required" });
@@ -376,6 +454,30 @@ export const updateComplaintStatus = async (
       } else {
         throw updateError;
       }
+    }
+
+    // CC-30: bind the "after" photos now the status change has committed.
+    //
+    // After the update rather than inside it: confirmAttachments performs a
+    // network round trip per file to check each object's real size, and a
+    // transaction held open across that is a transaction held open across a
+    // third party's latency. The cost of this ordering is that a failure here
+    // leaves the status changed and the photos unbound - which the nightly
+    // sweep collects, and which is strictly better than a complaint that
+    // cannot be resolved because storage was slow.
+    try {
+      await attachResolutionEvidence({
+        attachmentIds: resolutionAttachmentIds,
+        complaintId,
+        userId: req.user!.id,
+        status,
+      });
+    } catch (evidenceError) {
+      if (evidenceError instanceof AttachmentError) {
+        res.status(evidenceError.status).json({ error: evidenceError.message });
+        return;
+      }
+      throw evidenceError;
     }
 
     // Send notification for status change
@@ -1358,6 +1460,35 @@ export const requestAnswerDraft = async (
     res.json(result);
   } catch (error) {
     console.error("Error generating answer draft:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * CC-27: the staff directory.
+ *
+ * Readable by any authenticated member of the institution, because the point
+ * is that a student with a flooded bathroom can find the plumber. Only
+ * profiles that opted in appear at all — see listDirectory for why absence
+ * beats redaction.
+ */
+export const getStaffDirectory = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { category, teaching, q } = req.query;
+
+    const entries = await listDirectory({
+      category: typeof category === "string" ? category.toUpperCase() : null,
+      teaching:
+        teaching === "true" ? true : teaching === "false" ? false : null,
+      query: typeof q === "string" && q.trim() ? q.trim().slice(0, 80) : null,
+    });
+
+    res.json({ staff: entries });
+  } catch (error) {
+    console.error("[CC-27] staff directory failed:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

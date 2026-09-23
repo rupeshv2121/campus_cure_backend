@@ -5,6 +5,12 @@ import routes from "./routes/index.js";
 import { FRONTEND_URL } from "./config/env.js";
 import { prisma } from "./config/database.js";
 import { globalLimiter } from "./middleware/rateLimit.js";
+import {
+  errorHandler,
+  notFoundHandler,
+  requestLogger,
+} from "./middleware/observability.js";
+import { logger } from "./services/observability/logger.js";
 
 const app = express();
 
@@ -12,6 +18,10 @@ const app = express();
 // Without this, express-rate-limit sees the proxy address on every request and
 // one abusive client would rate-limit the entire campus.
 app.set("trust proxy", 1);
+
+// CC-05: first, so every request - including one helmet or CORS rejects -
+// gets an id and a log line. Everything after this runs inside its context.
+app.use(requestLogger);
 
 // Security headers (HSTS, X-Content-Type-Options, frame options, ...).
 // Mounted before anything that can produce a response.
@@ -56,9 +66,31 @@ app.get("/keep-db-alive", globalLimiter, async (_req, res) => {
     // Query a lightweight table for a single id to warm up connections
     await prisma.user.findFirst({ select: { id: true } });
     res.json({ status: "DB active" });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message ?? String(err) });
+  } catch (error) {
+    // The previous version returned `err.message` straight to the caller.
+    // A Prisma failure message is not a short string - it contains the
+    // database HOST, the absolute path of the file that made the call, and an
+    // excerpt of the surrounding SOURCE CODE. This route is unauthenticated
+    // and outside /api, so that was published to anyone who asked for it.
+    //
+    // Verified 2026-09-23 against a deliberately bad DATABASE_URL:
+    //   Can't reach database server at <host>
+    //   Invalid `prisma.user.findFirst()` invocation in
+    //   E:\...\campus_cure_backend\src\app.ts:64:21
+    //
+    // The detail goes to the logs, where it is actually useful, and the
+    // caller gets the health verdict it asked for and nothing more.
+    logger.error("keep-db-alive failed", { error });
+    res.status(503).json({ status: "DB unavailable" });
   }
 });
+
+// CC-05: after every route. Order matters and is easy to get wrong - a 404
+// handler mounted before the routes would swallow all of them.
+app.use(notFoundHandler);
+
+// CC-05: last. Express identifies this as an error handler by its four
+// parameters, so it must stay four-argument even though `next` is unused.
+app.use(errorHandler);
 
 export default app;

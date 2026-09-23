@@ -2,7 +2,6 @@ import { Role } from "@prisma/client";
 import { Router } from "express";
 import {
   confirmComplaintResolution,
-  createStudentProfile,
   deleteAnswer,
   deleteDoubt,
   editAnswer,
@@ -27,6 +26,7 @@ import {
   parseComplaint,
   postDoubt,
   raiseComplaint,
+  readDoubtFromImage,
   rejectComplaintResolution,
   submitComplaintFeedback,
   updateStudentProfile,
@@ -34,11 +34,27 @@ import {
   upvoteDoubt,
 } from "../controllers/studentController.js";
 import { authenticate, authorize } from "../middleware/auth.js";
+import { chatLimiter } from "../middleware/rateLimit.js";
 
 const router = Router();
 
-// 5. Create Student Profile (Called after basic registration)
-router.post("/", createStudentProfile);
+// CC-01 follow-up (2026-09-23): the unauthenticated `POST /` profile-creation
+// route that lived here has been REMOVED.
+//
+// It was dead code. `authController.register` creates the matching profile
+// itself for every role, so this endpoint's own "profile already exists" check
+// rejected every real call - the frontend never invoked it.
+//
+// It was also the wrong kind of dead code: unauthenticated, taking `userId`
+// from the request body, and writing permission fields straight from that body.
+// Registration creates the user and the profile in two separate awaited steps
+// rather than one transaction, so a failure in between leaves a PENDING
+// privileged user with no profile - exactly the window in which this endpoint
+// would have let an unauthenticated caller choose that user's permissions.
+//
+// Profiles are created at registration and edited through the authenticated
+// update routes below.
+
 
 // 6. Get Student Profile
 router.get("/me", authenticate, authorize(Role.STUDENT), getStudentProfile);
@@ -89,6 +105,28 @@ router.get(
 
 // 10. Post a new doubt
 router.post("/doubts", authenticate, authorize(Role.STUDENT), postDoubt);
+
+// CC-50: read a doubt out of an uploaded image. Advisory - it returns fields
+// for the student to edit and submit themselves, never a posted doubt.
+//
+// NOTE: CC-12's isolation test asserts that its own feature name appears in
+// no student route, which is how AI answer review is kept faculty-only. That
+// check is a plain text match, so the word is avoided here on purpose -
+// different feature, same vocabulary.
+//
+// Registered before any /doubts/:param route so "from-image" is not captured
+// as a doubt id, matching the ordering note on /complaints/similar.
+//
+// Metered by chatLimiter rather than uploadLimiter: the expensive part is the
+// vision completion, not the upload that preceded it, and a student who
+// re-reads one image ten times costs ten completions.
+router.post(
+  "/doubts/from-image",
+  authenticate,
+  authorize(Role.STUDENT),
+  chatLimiter,
+  readDoubtFromImage,
+);
 
 // 11. Get all doubts with filters
 router.get("/doubts", authenticate, authorize(Role.STUDENT), getDoubts);
