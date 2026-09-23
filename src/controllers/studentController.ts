@@ -14,6 +14,10 @@ import {
   parseComplaintText,
 } from "../services/intake/parseComplaint.js";
 import {
+  VisionExtractionError,
+  extractDoubtFromImage,
+} from "../services/vision/extractDoubt.js";
+import {
   requestEmbedding,
   triggerDrainInBackground,
 } from "../services/ai/embeddingWorker.js";
@@ -24,6 +28,7 @@ import {
   listForEntities,
 } from "../services/storage/attachments.js";
 import { initialSlaDueAt } from "../services/sla/policy.js";
+import { withEvidence } from "../services/storage/resolutionEvidence.js";
 import { prepareContent } from "../services/content/sanitize.js";
 import {
   ReputationReason,
@@ -660,24 +665,13 @@ export const getComplaints = async (
     // complaint. No signed URLs here — those are minted per view by
     // GET /api/attachments/:id, because a URL baked into this list would be
     // expired by the time anyone clicked it.
-    const attachments = await listForEntities(
-      AttachmentEntity.COMPLAINT,
-      complaints.map((complaint) => complaint.id),
-    );
-
-    res.json({
-      complaints: complaints.map((complaint) => ({
-        ...complaint,
-        attachments: (attachments.get(complaint.id) ?? []).map(
-          ({ id, mimeType, originalName, sizeBytes }) => ({
-            id,
-            mimeType,
-            originalName,
-            sizeBytes,
-          }),
-        ),
-      })),
-    });
+    // CC-30: both halves of the before/after pair, batched.
+    //
+    // The resolution photos matter most on THIS screen: it is where the
+    // student is asked to confirm or reject a fix, and "does the photo show a
+    // working fan" is a better basis for that decision than a one-line note
+    // saying it was fixed.
+    res.json({ complaints: await withEvidence(complaints) });
   } catch (e) {
     console.error("Error fetching complaints:", e);
     res.status(500).json({ error: "Internal server error" });
@@ -771,6 +765,8 @@ export const postDoubt = async (
       labels,
       attachmentIds,
       descriptionFormat,
+      transcribedFromImage,
+      transcriptionModel,
     } = req.body;
 
     // CC-23: sanitised HERE, on the server, on write. The editor is a
@@ -804,6 +800,16 @@ export const postDoubt = async (
           subject,
           // CC-20: both columns from one helper so they cannot drift.
           ...prepareTags(labels),
+          // CC-50: provenance, coerced rather than trusted. A client could
+          // claim any model name, so the string is bounded and only recorded
+          // when the flag is actually set - a label on the doubt, never an
+          // input to any decision.
+          transcribedFromImage: transcribedFromImage === true,
+          transcriptionModel:
+            transcribedFromImage === true &&
+            typeof transcriptionModel === "string"
+              ? transcriptionModel.trim().slice(0, 100) || null
+              : null,
           postedBy: { connect: { id: req.user!.id } },
         },
         include: {
@@ -2585,5 +2591,53 @@ export const getBookmarkedDoubts = async (
   } catch (error) {
     console.error("Error fetching bookmarked doubts:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * CC-50: read a doubt out of an uploaded image.
+ *
+ * Advisory, exactly like CC-14's complaint parser. The student has already
+ * uploaded the image through CC-02, so this takes an attachment id rather than
+ * bytes — the size cap, the MIME allow-list and the ownership check all live
+ * in one place that way.
+ *
+ * The response is a draft for the form, never a posted doubt. Auto-posting a
+ * transcription would publish text the student has not read, under their name,
+ * to a community that upvotes it.
+ *
+ * Unlike `parseComplaint`, this does NOT degrade to an empty suggestion on
+ * failure. A student who asked for the image to be read and silently got a
+ * blank form would conclude the upload failed. The distinct statuses
+ * (503 unavailable, 422 illegible, 400 wrong format) each tell them what to do.
+ */
+export const readDoubtFromImage = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { attachmentId } = req.body as { attachmentId?: unknown };
+
+    if (typeof attachmentId !== "string" || attachmentId.trim() === "") {
+      res.status(400).json({ error: "attachmentId is required." });
+      return;
+    }
+
+    const draft = await extractDoubtFromImage({
+      attachmentId: attachmentId.trim(),
+      userId: req.user!.id,
+    });
+
+    res.json(draft);
+  } catch (error) {
+    if (error instanceof VisionExtractionError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+
+    console.error("[CC-50] reading doubt from image failed:", error);
+    res
+      .status(500)
+      .json({ error: "Could not read the image. Please type your question." });
   }
 };

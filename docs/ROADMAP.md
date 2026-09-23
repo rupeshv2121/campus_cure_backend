@@ -1,6 +1,6 @@
 # CampusCure Roadmap
 
-**Last updated:** 2026-09-21
+**Last updated:** 2026-09-23
 
 Every planned feature, in dependency order, with its branch. Feature IDs (`CC-NN`) are permanent and
 never reused. Effort is in ideal working days for one developer.
@@ -14,13 +14,19 @@ never reused. Effort is in ideal working days for one developer.
 | Frontend | React 18 + Vite + shadcn/Radix + antd + TanStack Query, ~10.4k lines |
 | Deploy | Vercel serverless (`campus_cure_backend/api/index.ts`) |
 | Shipped | 4 roles, doubts/answers/upvotes/moderation, complaints w/ escalation + feedback, in-app notifications, face login |
-| Missing | file storage, email, rate limiting, tests, audit log, observability |
+| Missing | observability (CC-05), staff directory (CC-27), web push, TOTP, PWA, i18n |
 
 ## Architecture decisions
 
 AI providers are **HuggingFace Inference** (embeddings), **Groq** (fast generation, tool calling),
 and **Mistral** (fallback generation + vision). All hosted — nothing extra to deploy, Vercel
 serverless stays viable. See [ADR-0001](adr/0001-ai-provider-strategy.md).
+
+> **Provider status, verified live 2026-09-23.** HuggingFace 200 (384-dim vectors), Groq 200,
+> Mistral **429 on every completion** — the key authenticates but the account has no inference
+> quota. Groq is primary so CC-12 and CC-15 work, but they currently have **no fallback**, and
+> CC-50 cannot run at all because Groq's catalogue on our key has no multimodal model. Fixing the
+> Mistral account restores both. See [CC-50](specs/CC-50-image-doubts.md#blocked-on-quota).
 
 Vector storage is **pgvector inside the existing Supabase Postgres**, not FAISS/Chroma/Pinecone.
 See [ADR-0002](adr/0002-vector-storage.md).
@@ -190,9 +196,13 @@ Everything drains through the CC-03 outbox.
 
 | ID | Feature | Repos | Branch | Est | Depends |
 |---|---|---|---|---|---|
-| CC-50 | Image-based doubt submission — Pixtral vision, no OCR step | both | `feat/CC-50-image-doubts` | 3 | CC-02, CC-10 |
+| CC-50 | Image-based doubt submission — Mistral vision, no OCR step | both | `feat/CC-50-image-doubts` | 3 | CC-02, CC-10 |
 
 **Phase total: ~3 days**
+
+**Implemented 2026-09-23.** Note the model named here has changed: Pixtral no longer appears in the
+Mistral catalogue, and `mistral-medium-latest` is what actually reports vision support. List the
+catalogue rather than trusting any written-down id.
 
 Replaces the original OCR phase. Classical OCR (Tesseract) fails badly on handwriting and cannot
 represent diagrams or equations at all. A vision model reads the handwriting *and* understands the
@@ -347,7 +357,11 @@ they conflict, and resolving it after both have applied locally is genuinely pai
 | CC-60 | [Face login hardening](specs/CC-60-face-hardening.md) | **Implemented** 2026-09-21 — templates encrypted, 1:N endpoint deleted |
 | CC-40 | [Email notifications](specs/CC-40-email-notifications.md) | **Implemented** 2026-09-21 — migration applied |
 | CC-03 | [Email infrastructure](specs/CC-03-email-infra.md) | **Implemented** 2026-09-21 — migration applied; needs a verified domain |
-| CC-02 | [File storage layer](specs/CC-02-file-storage.md) | **Dormant** 2026-09-21 — code complete, off pending Supabase dashboard access |
+| CC-02 | [File storage layer](specs/CC-02-file-storage.md) | **Live** 2026-09-22 — bucket `campuscure-attachments` created, private, credentials set |
+| CC-50 | [Image-based doubt submission](specs/CC-50-image-doubts.md) | **Implemented** 2026-09-23 — code complete and tested; no live demo until Mistral quota is restored |
+| CC-05 | [Observability](specs/CC-05-observability.md) | **Implemented** 2026-09-23 — logging, request ids and error handling live; Sentry dormant until a DSN is set |
+| CC-30 | [Complaint photo evidence](specs/CC-30-complaint-evidence.md) | **Implemented** 2026-09-23 — before/after evidence, EXIF stripped client-side; one manual check outstanding |
+| CC-27 | [Staff directory](specs/CC-27-staff-directory.md) | **Implemented** 2026-09-23 — non-teaching staff are routable, opt-in directory; migration pending a database |
 | CC-20 | [Doubt tags](specs/CC-20-tags.md) | **Shipped** 2026-09-21 — migration applied |
 | CC-21 | [Doubt bookmarks](specs/CC-21-bookmarks.md) | **Shipped** 2026-09-21 — migration applied |
 | CC-22 | [Code syntax highlighting](specs/CC-22-code-highlighting.md) | **Shipped** 2026-09-21 |

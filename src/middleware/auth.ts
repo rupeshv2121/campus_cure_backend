@@ -2,6 +2,7 @@ import { Role } from "@prisma/client";
 import type { NextFunction, Response } from "express";
 import jwt from "jsonwebtoken";
 import { JWT_SECRET, prisma } from "../config/database.js";
+import { setContextUser } from "../services/observability/requestContext.js";
 import type { AuthRequest } from "../types/index.js";
 
 // Authentication Middleware
@@ -41,6 +42,13 @@ export const authenticate = async (
       userID: user.userID,
       university: user.university,
     };
+
+    // CC-05: from here on every log line and error report for this request
+    // carries who made it. The id only - never the name or email, which are
+    // personal data that CC-64's erasure path cannot reach once copied into
+    // a log aggregator.
+    setContextUser(user.id, user.role);
+
     next();
   } catch (error) {
     res.status(401).json({ error: "Invalid or expired token" });

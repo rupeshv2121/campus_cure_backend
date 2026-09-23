@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Dormant** — code complete 2026-09-21, switched off pending Supabase access |
+| **Status** | **Live** — bucket created 2026-09-22, round trip verified 2026-09-23 |
 | **Phase** | 0 |
 | **Branch** | `feat/CC-02-file-storage` |
 | **Repos** | both |
@@ -276,7 +276,31 @@ Objects already in the bucket are external state and are *not* removed by a code
 feature is abandoned rather than deferred, empty the bucket manually, taking a backup first if any
 complaint evidence has real value.
 
-## Dormant by default
+## Verification, 2026-09-23
+
+Bucket `campuscure-attachments` exists in project `exzhuhzxmkzfguozfhdc`, `public: false`.
+A full round trip was exercised against live storage with the real service-role key:
+
+| Step | Result |
+|---|---|
+| `createSignedUpload` | URL issued, scoped to one object path |
+| Browser-style `PUT` of a 3,307-byte PNG | `200` |
+| `headObject` | 3,307 bytes — matches the local file, so the size cap is enforceable |
+| `createSignedDownload` then `GET` | `200`, 3,307 bytes returned |
+| **Same URL with the signature stripped** | **`400` — refused.** Criterion 13 holds: the bucket is private |
+| `downloadObject` (added for CC-50) | 3,307 bytes, byte-identical |
+| `deleteObjects` | object gone |
+
+That covers criteria 8 and 13. Criterion 1 (a student attaching a JPEG to a complaint and seeing it
+render) still needs a working database connection, and criterion 14 is covered by
+`src/__tests__/unit/env.test.ts`.
+
+**Note on projects:** storage lives in `exzhuhzxmkzfguozfhdc`, which as of 2026-09-23 is also where
+the database is being moved. Until that move completes, `SUPABASE_URL` and `DATABASE_URL` may point
+at different projects — which *works*, because the code only uses `SUPABASE_URL` for storage, but is
+not the intended end state.
+
+## Previously: dormant by default
 
 Nobody on the team has Supabase dashboard access at the time of writing, so the bucket
 cannot be created and the feature cannot be exercised end to end. It is therefore

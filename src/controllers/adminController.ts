@@ -14,6 +14,12 @@ import {
   buildComplaintAssignmentHistoryEntry,
 } from "../utils/complaintAssignmentHistory.js";
 import { computeSlaDueAt } from "../services/sla/policy.js";
+import { rankCandidates } from "../services/staff/routing.js";
+import { AttachmentError } from "../services/storage/attachments.js";
+import {
+  attachResolutionEvidence,
+  withEvidence,
+} from "../services/storage/resolutionEvidence.js";
 import {
   AuditAction,
   auditFromRequest,
@@ -769,7 +775,9 @@ export const getAllComplaints = async (
       },
     });
 
-    res.json({ complaints });
+    // CC-30: admins triage and reassign from this list, so they need the same
+    // evidence the faculty member will get.
+    res.json({ complaints: await withEvidence(complaints) });
   } catch (error) {
     console.error("Get all complaints error:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -1021,7 +1029,8 @@ export const updateComplaintStatus = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const { complaintId, status, resolutionNote } = req.body;
+    const { complaintId, status, resolutionNote, resolutionAttachmentIds } =
+      req.body;
 
     if (!complaintId || !status) {
       res.status(400).json({ error: "Complaint ID and status are required" });
@@ -1109,6 +1118,24 @@ export const updateComplaintStatus = async (
       } else {
         throw updateError;
       }
+    }
+
+    // CC-30: bind the "after" photos now the status change has committed.
+    // Same ordering and same reasoning as the faculty handler - see
+    // services/storage/resolutionEvidence.ts.
+    try {
+      await attachResolutionEvidence({
+        attachmentIds: resolutionAttachmentIds,
+        complaintId,
+        userId: req.user!.id,
+        status,
+      });
+    } catch (evidenceError) {
+      if (evidenceError instanceof AttachmentError) {
+        res.status(evidenceError.status).json({ error: evidenceError.message });
+        return;
+      }
+      throw evidenceError;
     }
 
     // Send notification for status change
@@ -2035,6 +2062,51 @@ export const getAuditLog = async (
     res.json(result);
   } catch (error) {
     console.error("Get audit log error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/**
+ * CC-27: ranked assignment candidates for one complaint.
+ *
+ * Replaces the flat, name-ordered list from `getApprovedFaculty` at the point
+ * where it did the most damage. That endpoint returned every approved faculty
+ * member with no indication of who does what, so the admin assigning "broken
+ * fan in ML02" had no way to see that one of the eighty names was the
+ * electrician.
+ *
+ * Everyone assignable is still returned, best first — never a filtered list.
+ * A wrong `handlesCategories` value must not make a complaint unassignable,
+ * and the admin may always overrule the ranking.
+ */
+export const getAssignmentCandidates = async (
+  req: AuthRequest,
+  res: Response,
+): Promise<void> => {
+  try {
+    const complaintId = String(req.params.complaintId ?? "");
+
+    const complaint = await prisma.complaint.findUnique({
+      where: { id: complaintId },
+      select: { id: true, category: true, block: true },
+    });
+
+    if (!complaint) {
+      res.status(404).json({ error: "Complaint not found" });
+      return;
+    }
+
+    const candidates = await rankCandidates({
+      category: complaint.category,
+      // Department is a TIEBREAK only, never a qualification: an electrician
+      // from another department still fixes fans better than a nearby
+      // lecturer, which is the exact mistake the deleted rules table made.
+      department: null,
+    });
+
+    res.json({ category: complaint.category, candidates });
+  } catch (error) {
+    console.error("[CC-27] assignment candidates failed:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

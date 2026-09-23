@@ -165,3 +165,28 @@ export const deleteObjects = async (storagePaths: string[]): Promise<void> => {
     );
   }
 };
+
+/**
+ * Pull an object's bytes into memory (CC-50).
+ *
+ * The only read path that brings a file through the server rather than handing
+ * the browser a signed URL, and it exists for one reason: the vision model
+ * needs the image inlined in a request we control. Sending it a signed URL
+ * instead would be cheaper on bandwidth but would hand a third party a live
+ * credential to a private bucket.
+ *
+ * Callers must bound what they ask for — `VISION_MAX_IMAGE_BYTES` is checked
+ * against the recorded size *before* this is called, so a 5 MB ceiling is
+ * never exceeded by a lambda that has ~1 GB of memory and a 4.5 MB body limit.
+ */
+export const downloadObject = async (storagePath: string): Promise<Buffer> => {
+  const { data, error } = await bucket().download(storagePath);
+
+  if (error || !data) {
+    throw new Error(
+      `Failed to download ${storagePath}: ${error?.message ?? "no data"}`,
+    );
+  }
+
+  return Buffer.from(await data.arrayBuffer());
+};

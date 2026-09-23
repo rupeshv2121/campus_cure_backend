@@ -2,7 +2,6 @@ import { Role } from "@prisma/client";
 import { Router } from "express";
 import {
   assignedComplaints,
-  createFacultyProfile,
   deleteAnswer,
   editAnswer,
   getDoubtById,
@@ -25,7 +24,22 @@ import { authenticate, authorize } from "../middleware/auth.js";
 const router = Router();
 
 // 8. Create Faculty Profile
-router.post("/", createFacultyProfile);
+// CC-01 follow-up (2026-09-23): the unauthenticated `POST /` profile-creation
+// route that lived here has been REMOVED.
+//
+// It was dead code. `authController.register` creates the matching profile
+// itself for every role, so this endpoint's own "profile already exists" check
+// rejected every real call - the frontend never invoked it.
+//
+// It was also the wrong kind of dead code: unauthenticated, taking `userId`
+// from the request body, and writing permission fields straight from that body.
+// Registration creates the user and the profile in two separate awaited steps
+// rather than one transaction, so a failure in between leaves a PENDING
+// privileged user with no profile - exactly the window in which this endpoint
+// would have let an unauthenticated caller choose that user's permissions.
+//
+// Profiles are created at registration and edited through the authenticated
+// update routes below.
 
 // 9. Get Faculty Profile
 router.get("/me", authenticate, authorize(Role.FACULTY), getFacultyProfile);

@@ -211,6 +211,49 @@ export const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY?.trim() || undefined;
 export const MISTRAL_MODEL =
   process.env.MISTRAL_MODEL?.trim() || "mistral-small-latest";
 
+/* --- Vision (CC-50). Separate from MISTRAL_MODEL on purpose. --- */
+
+/**
+ * The model that reads images.
+ *
+ * Kept as its own variable rather than reusing MISTRAL_MODEL because the two
+ * are tuned against different costs: the text model is picked for cheap, fast
+ * generation, while a transcription that misreads one character produces a
+ * question nobody can answer. Vision is worth the larger model.
+ *
+ * Checked live on 2026-09-23: `mistral-medium-latest` reports vision support.
+ * The roadmap named Pixtral, which no longer appears in the catalogue at all —
+ * so list the models rather than trusting any written-down id:
+ *   curl -H "Authorization: Bearer $MISTRAL_API_KEY" https://api.mistral.ai/v1/models
+ */
+export const MISTRAL_VISION_MODEL =
+  process.env.MISTRAL_VISION_MODEL?.trim() || "mistral-medium-latest";
+
+/**
+ * Whether image understanding is available at all.
+ *
+ * Mistral is currently the ONLY vision provider wired up: Groq's catalogue on
+ * our key is text-only (checked 2026-09-23), so there is no fallback the way
+ * there is for generation. That is why this is its own switch rather than a
+ * branch inside AI_ENABLED — image doubts can be unavailable while chat,
+ * drafts and search are all perfectly healthy.
+ */
+export const VISION_ENABLED =
+  process.env.VISION_ENABLED?.trim().toLowerCase() === "false"
+    ? false
+    : Boolean(AI_ENABLED && MISTRAL_API_KEY);
+
+/**
+ * Cap on the image handed to the vision model, in bytes.
+ *
+ * Distinct from ATTACHMENT_MAX_BYTES, which governs what may be stored. This
+ * governs what may be sent to a metered third party, and base64 inflates the
+ * payload by about a third on the way out.
+ */
+export const VISION_MAX_IMAGE_BYTES = Number(
+  process.env.VISION_MAX_IMAGE_BYTES ?? 4 * 1024 * 1024,
+);
+
 /**
  * Hours a doubt must go unanswered before an AI draft is generated.
  *
@@ -236,6 +279,64 @@ export const GROUNDING_SIMILARITY_THRESHOLD = Number(
 
 /** Set by Vercel Cron, which sends it as `Authorization: Bearer <secret>`. */
 export const CRON_SECRET = process.env.CRON_SECRET?.trim() || undefined;
+
+/* ------------------------------------------------------------------ *
+ * Observability (CC-05)
+ *
+ * Optional, like every other integration here. With no DSN the app logs to
+ * stdout and nothing is reported anywhere - which is exactly what a local
+ * checkout wants, and is a degradation rather than a failure.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Sentry DSN.
+ *
+ * NOTE the name. An earlier `.env` carried `SENTRY_DSN_API_KEY`, which is not
+ * a thing Sentry issues - a DSN is a URL that already embeds the public key,
+ * and it is not a secret in the way an API key is (it ships in browser
+ * bundles by design). The variable is named for what it holds.
+ */
+export const SENTRY_DSN = process.env.SENTRY_DSN?.trim() || undefined;
+
+/**
+ * Which deployment errors are tagged with. Without this every environment
+ * reports into one undifferentiated stream and "is this happening in
+ * production?" stops being answerable.
+ */
+export const SENTRY_ENVIRONMENT =
+  process.env.SENTRY_ENVIRONMENT?.trim() || NODE_ENV;
+
+/** Defaults on when a DSN is present; "false" always wins. */
+export const SENTRY_ENABLED =
+  process.env.SENTRY_ENABLED?.trim().toLowerCase() === "false"
+    ? false
+    : Boolean(SENTRY_DSN);
+
+/**
+ * Milliseconds to wait for Sentry before answering the request.
+ *
+ * A Vercel lambda freezes the moment the response is sent, so a fire-and-
+ * forget report is a report that usually does not arrive. The send is
+ * therefore awaited - but bounded, because an error page that hangs for ten
+ * seconds is worse than an error that goes unreported.
+ */
+export const SENTRY_TIMEOUT_MS = Number(process.env.SENTRY_TIMEOUT_MS ?? 2000);
+
+/** One of: debug, info, warn, error, silent. */
+export const LOG_LEVEL = process.env.LOG_LEVEL?.trim().toLowerCase() || "info";
+
+/**
+ * Whether request logs are emitted as JSON.
+ *
+ * On by default in production, where something is parsing them, and off
+ * locally, where a human is reading them.
+ */
+export const LOG_JSON =
+  process.env.LOG_JSON?.trim().toLowerCase() === "true"
+    ? true
+    : process.env.LOG_JSON?.trim().toLowerCase() === "false"
+      ? false
+      : IS_PRODUCTION;
 
 /* ------------------------------------------------------------------ *
  * Email (CC-03)
@@ -605,4 +706,24 @@ if (
 
 if (!Number.isInteger(EMBEDDING_DIMENSIONS) || EMBEDDING_DIMENSIONS <= 0) {
   fatal(`EMBEDDING_DIMENSIONS must be a positive integer.`);
+}
+
+if (!Number.isInteger(VISION_MAX_IMAGE_BYTES) || VISION_MAX_IMAGE_BYTES <= 0) {
+  fatal("VISION_MAX_IMAGE_BYTES must be a positive integer.");
+}
+
+if (!["debug", "info", "warn", "error", "silent"].includes(LOG_LEVEL)) {
+  fatal(
+    `LOG_LEVEL must be one of: debug, info, warn, error, silent (got "${LOG_LEVEL}").`,
+  );
+}
+
+// A DSN that is not a URL is a copy-paste accident, and the symptom otherwise
+// is silence - errors simply never appear, with nothing to explain why.
+if (SENTRY_DSN && !/^https:\/\/[^@]+@[^/]+\/\d+$/.test(SENTRY_DSN)) {
+  fatal(
+    "SENTRY_DSN does not look like a Sentry DSN. Expected the form " +
+      "https://<key>@<host>/<project-id>, copied from Sentry under " +
+      "Settings -> Projects -> Client Keys.",
+  );
 }
