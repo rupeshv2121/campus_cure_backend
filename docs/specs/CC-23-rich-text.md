@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Implemented 2026-09-21** — migration applied; images still pending CC-02 |
+| **Status** | **Implemented 2026-09-21** — migration applied; inline images not yet wired (CC-02 live since 2026-09-22) |
 | **Phase** | 2 |
 | **Branch** | `feat/CC-23-rich-text` |
 | **Repos** | both |

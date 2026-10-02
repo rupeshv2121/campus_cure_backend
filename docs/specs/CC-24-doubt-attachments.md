@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Implemented 2026-09-21** — inert until CC-02 has a bucket |
+| **Status** | **Live 2026-10-02** — bucket `campuscure-attachments` verified (private, 5 MB limit); manual upload check outstanding |
 | **Phase** | 2 |
 | **Branch** | `feat/CC-24-doubt-attachments` |
 | **Repos** | both |

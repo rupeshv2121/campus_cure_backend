@@ -1,19 +1,24 @@
 /**
- * Mistral vision provider (CC-50).
+ * Vision provider for OpenAI-compatible APIs (CC-50).
  *
- * Verified against the live API on 2026-09-23:
+ * Serves Groq and Mistral, which share `/chat/completions` but disagree on one
+ * field. Both verified against the live APIs:
  *
- *   POST https://api.mistral.ai/v1/chat/completions
  *   { "model": "<vision model>",
  *     "messages": [{ "role": "user", "content": [
  *        { "type": "text",      "text": "..." },
- *        { "type": "image_url", "image_url": "data:image/png;base64,..." }
+ *        { "type": "image_url", "image_url": <see below> }
  *     ]}] }
  *
- * Two things worth recording:
+ * Things worth recording:
  *
- *  - `image_url` takes the data URI as a plain STRING here, not the
- *    `{ url: ... }` object OpenAI uses. Sending the object shape fails.
+ *  - `image_url` shape differs per provider, and each rejects the other's:
+ *      Groq    (2026-10-02): `{ "url": "data:..." }` — a string is a 400.
+ *      Mistral (2026-09-23): `"data:..."` as a plain string — the object fails.
+ *    Hence `imageUrlFormat` rather than a guess.
+ *  - Reasoning models (Groq's Qwen3) may emit a `<think>` block ahead of the
+ *    answer. It is stripped here, because the JSON parser downstream takes the
+ *    first `{` it sees and a brace inside the reasoning would derail it.
  *  - The image is inlined as base64 rather than passed as a signed Supabase
  *    URL. A signed URL would be smaller on the wire, but it hands a third
  *    party a live credential to our private bucket, and the bucket is private
@@ -30,10 +35,15 @@ import {
 
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
-export interface MistralVisionOptions {
+/** How the provider wants the data URI wrapped. See the file header. */
+export type ImageUrlFormat = "object" | "string";
+
+export interface OpenAICompatibleVisionOptions {
+  name: string;
+  baseUrl: string;
   apiKey: string;
   model: string;
-  baseUrl?: string;
+  imageUrlFormat: ImageUrlFormat;
   maxAttempts?: number;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
@@ -43,24 +53,28 @@ export interface MistralVisionOptions {
 const defaultSleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-export class MistralVisionProvider implements VisionProvider {
-  readonly name = "mistral-vision";
+/** Drop any `<think>…</think>` reasoning a model emitted before its answer. */
+const stripReasoning = (content: string): string =>
+  content.replace(/<think>[\s\S]*?(<\/think>|$)/gi, "").trim();
+
+export class OpenAICompatibleVisionProvider implements VisionProvider {
+  readonly name: string;
   readonly model: string;
 
   private readonly apiKey: string;
   private readonly baseUrl: string;
+  private readonly imageUrlFormat: ImageUrlFormat;
   private readonly maxAttempts: number;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
   private readonly sleep: (ms: number) => Promise<void>;
 
-  constructor(options: MistralVisionOptions) {
+  constructor(options: OpenAICompatibleVisionOptions) {
+    this.name = options.name;
     this.apiKey = options.apiKey;
     this.model = options.model;
-    this.baseUrl = (options.baseUrl ?? "https://api.mistral.ai/v1").replace(
-      /\/$/,
-      "",
-    );
+    this.baseUrl = options.baseUrl.replace(/\/$/, "");
+    this.imageUrlFormat = options.imageUrlFormat;
     this.maxAttempts = options.maxAttempts ?? 3;
     // Longer than the chat provider's 45s: a megapixel image costs real time
     // to encode and read before the first token appears.
@@ -119,7 +133,11 @@ export class MistralVisionProvider implements VisionProvider {
               role: "user",
               content: [
                 { type: "text", text: instruction },
-                { type: "image_url", image_url: dataUri },
+                {
+                  type: "image_url",
+                  image_url:
+                    this.imageUrlFormat === "object" ? { url: dataUri } : dataUri,
+                },
               ],
             },
           ],
@@ -157,7 +175,7 @@ export class MistralVisionProvider implements VisionProvider {
     };
 
     const choice = payload.choices?.[0];
-    const content = choice?.message?.content?.trim() ?? "";
+    const content = stripReasoning(choice?.message?.content ?? "");
 
     if (!content) {
       throw new EmptyVisionError(this.model, choice?.finish_reason);

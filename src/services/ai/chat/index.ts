@@ -1,13 +1,20 @@
 /**
  * Chat provider selection with fallback.
  *
- * Generation may fail over between providers — the output is text, so a Mistral
- * answer is as usable as a Groq one. This is the opposite of embeddings, where
- * substituting a provider silently corrupts the index (ADR-0001).
+ * Generation may fail over between providers — the output is text, so any
+ * provider's answer is as usable as another's. This is the opposite of
+ * embeddings, where substituting a provider silently corrupts the index
+ * (ADR-0001).
+ *
+ * Order: Groq, then the second Groq key, then Mistral. The second key is a
+ * separate Groq project, so it survives the first key being rate-limited or
+ * revoked; Mistral stays last because its account has had no quota since
+ * 2026-09-23.
  */
 import {
   AI_ENABLED,
   GROQ_API_KEY,
+  GROQ_API_KEY2,
   GROQ_MODEL,
   MISTRAL_API_KEY,
   MISTRAL_MODEL,
@@ -30,6 +37,17 @@ export const getChatProviders = (): ChatProvider[] => {
           name: "groq",
           baseUrl: "https://api.groq.com/openai/v1",
           apiKey: GROQ_API_KEY,
+          model: GROQ_MODEL,
+        }),
+      );
+    }
+
+    if (GROQ_API_KEY2) {
+      providers.push(
+        new OpenAICompatibleChatProvider({
+          name: "groq-2",
+          baseUrl: "https://api.groq.com/openai/v1",
+          apiKey: GROQ_API_KEY2,
           model: GROQ_MODEL,
         }),
       );

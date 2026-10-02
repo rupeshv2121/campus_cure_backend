@@ -30,8 +30,8 @@ the lambda bundle, no paid plans. Zero marginal cost is a hard constraint, not a
 | Capability | Primary | Fallback |
 |---|---|---|
 | Embeddings | HuggingFace Inference — `sentence-transformers/all-MiniLM-L6-v2` (384-dim), open model | **none** — retry + queue (see below) |
-| Generation | Groq — free tier, fast, OpenAI-compatible tool calling | Mistral free tier |
-| Vision | Mistral — Pixtral, free tier | — |
+| Generation | Groq — free tier, fast, OpenAI-compatible tool calling | Second Groq project (`GROQ_API_KEY2`), then Mistral *(2026-10-02)* |
+| Vision | Groq `qwen/qwen3.8-27b` *(2026-10-02; originally Mistral Pixtral)* | Mistral `mistral-medium-latest` |
 
 All three providers offer a free tier sufficient for a single-campus workload. Choose **open-weight
 models** (Llama, Mistral, MiniLM) over proprietary ones throughout — they are the ones available free,
@@ -165,3 +165,9 @@ AI_ENABLED=true             # global kill switch — false disables all AI paths
 
 **Key handling:** if a key is ever pasted somewhere shared, treat it as compromised and rotate it.
 All three providers let you revoke and reissue for free, so rotation is cheap — do it on any doubt.
+
+**Update 2026-10-02:** Mistral's account has returned 429 on every completion since 2026-09-23.
+Rather than wait on it, vision moved to Groq's `qwen/qwen3.8-27b`, and a second Groq project's key
+became the generation fallback. Mistral remains wired as the last resort in both. The decision above
+(hosted providers, OpenAI-compatible APIs, no failover for embeddings) is unchanged. See
+[CC-50](../specs/CC-50-image-doubts.md#provider-change-2026-10-02).

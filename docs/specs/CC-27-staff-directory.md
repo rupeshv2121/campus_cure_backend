@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Implemented** 2026-09-23 — code complete and tested; migration pending a database |
+| **Status** | **Implemented** 2026-09-23 — code complete and tested; migration applied (`prisma migrate status` clean, 2026-10-02) |
 | **Phase** | 2 |
 | **Branch** | `feat/CC-27-staff-directory` |
 | **Repos** | both |

@@ -207,14 +207,43 @@ export const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim() || undefined;
 export const GROQ_MODEL =
   process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-120b";
 
+/**
+ * A second Groq key, from a separate Groq project.
+ *
+ * Replaces Mistral as the generation fallback (Mistral's account has had no
+ * inference quota since 2026-09-23), and is the vision key: on 2026-10-02 the
+ * primary key's project blocked `qwen/qwen3.8-27b` with a 403
+ * (`model_permission_blocked_project`) while this one could call it.
+ */
+export const GROQ_API_KEY2 = process.env.GROQ_API_KEY2?.trim() || undefined;
+
 export const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY?.trim() || undefined;
 export const MISTRAL_MODEL =
   process.env.MISTRAL_MODEL?.trim() || "mistral-small-latest";
 
-/* --- Vision (CC-50). Separate from MISTRAL_MODEL on purpose. --- */
+/* --- Vision (CC-50). Separate from the text models on purpose. --- */
 
 /**
- * The model that reads images.
+ * The Groq model that reads images. Primary vision provider.
+ *
+ * Checked live on 2026-10-02: the only multimodal model in the Groq catalogue
+ * on our keys. It transcribed a test question exactly, LaTeX and all, in about
+ * half a second. Free tier allows 7,000 input tokens a minute and one photo
+ * costs ~2,300, so expect roughly three image doubts a minute per project.
+ *   curl -H "Authorization: Bearer $GROQ_API_KEY2" https://api.groq.com/openai/v1/models
+ */
+export const GROQ_VISION_MODEL =
+  process.env.GROQ_VISION_MODEL?.trim() || "qwen/qwen3.8-27b";
+
+/**
+ * The key vision calls use. Prefers GROQ_API_KEY2, the project that can call
+ * the vision model; see GROQ_API_KEY2.
+ */
+export const GROQ_VISION_API_KEY = GROQ_API_KEY2 ?? GROQ_API_KEY;
+
+/**
+ * The Mistral model that reads images. Vision fallback, used only when
+ * MISTRAL_API_KEY is set.
  *
  * Kept as its own variable rather than reusing MISTRAL_MODEL because the two
  * are tuned against different costs: the text model is picked for cheap, fast
@@ -232,26 +261,25 @@ export const MISTRAL_VISION_MODEL =
 /**
  * Whether image understanding is available at all.
  *
- * Mistral is currently the ONLY vision provider wired up: Groq's catalogue on
- * our key is text-only (checked 2026-09-23), so there is no fallback the way
- * there is for generation. That is why this is its own switch rather than a
- * branch inside AI_ENABLED — image doubts can be unavailable while chat,
- * drafts and search are all perfectly healthy.
+ * Its own switch rather than a branch inside AI_ENABLED, because image doubts
+ * can be unavailable while chat, drafts and search are all perfectly healthy —
+ * the vision model is a different model, often on a different key.
  */
 export const VISION_ENABLED =
   process.env.VISION_ENABLED?.trim().toLowerCase() === "false"
     ? false
-    : Boolean(AI_ENABLED && MISTRAL_API_KEY);
+    : Boolean(AI_ENABLED && (GROQ_VISION_API_KEY || MISTRAL_API_KEY));
 
 /**
  * Cap on the image handed to the vision model, in bytes.
  *
  * Distinct from ATTACHMENT_MAX_BYTES, which governs what may be stored. This
  * governs what may be sent to a metered third party, and base64 inflates the
- * payload by about a third on the way out.
+ * payload by about a third on the way out. 3 MB because Groq rejects base64
+ * images over 4 MB, which is where a 3 MB file lands once encoded.
  */
 export const VISION_MAX_IMAGE_BYTES = Number(
-  process.env.VISION_MAX_IMAGE_BYTES ?? 4 * 1024 * 1024,
+  process.env.VISION_MAX_IMAGE_BYTES ?? 3 * 1024 * 1024,
 );
 
 /**

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Implemented** 2026-09-23 — code complete and tested; blocked on Mistral quota for a live demo |
+| **Status** | **Implemented** 2026-09-23 — live on Groq vision since 2026-10-02 (see *Provider change*); manual photo check outstanding |
 | **Phase** | 5 |
 | **Branch** | `feat/CC-50-image-doubts` |
 | **Repos** | both |
@@ -66,7 +66,7 @@ CC-14, for identical reasons.
 ### Flow
 
 ```
-  browser                          backend                         Mistral
+  browser                          backend                     Groq (Mistral)
      |  (CC-02) upload image          |                               |
      |------------------------------->|                               |
      |  attachmentId                  |                               |
@@ -129,7 +129,7 @@ Migration: `20260923100000_cc50_add_doubt_transcription`.
 | File | Responsibility |
 |---|---|
 | `src/services/ai/vision/types.ts` | Provider contract, error types |
-| `src/services/ai/vision/mistralVision.ts` | The only module that speaks to the vision API |
+| `src/services/ai/vision/openaiCompatibleVision.ts` | The only module that speaks to a vision API (Groq and Mistral) |
 | `src/services/ai/vision/index.ts` | Provider selection and availability |
 | `src/services/vision/extractDoubt.ts` | Validation, prompt, parsing. No HTTP |
 | `src/services/storage/supabaseStorage.ts` | `downloadObject` added |
@@ -165,14 +165,17 @@ not the upload before it.
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| **Single provider** — Mistral is the only vision model on our keys | **High** | **High** | Feature degrades to "type it yourself"; `VISION_ENABLED` is its own switch so chat/search/drafts are unaffected. See below |
+| **Single provider** — only Groq's `qwen/qwen3.8-27b` is usable on our keys | **Medium** | **High** | Feature degrades to "type it yourself"; `VISION_ENABLED` is its own switch so chat/search/drafts are unaffected. See below |
 | Model answers instead of transcribing | Medium | High | Forbidden in the prompt; asserted in a test |
 | Confident hallucination on a blurred photo | Medium | High | `legible` flag; empty description overrides a `legible: true` claim; original image stays attached; UI warns |
 | Quota exhausted by one student re-reading | Medium | Medium | `chatLimiter`, 10/min per user |
+| Groq free tier: 7,000 input tokens/min, ~2,300 per photo | **High** at demo time | Medium | ~3 photos/min per Groq project; a 429 degrades to "type it yourself" |
 | Image too large for the lambda | Low | Medium | `VISION_MAX_IMAGE_BYTES` checked before download |
 | Signed URL leaked to a third party | — | — | Avoided structurally: bytes are inlined, never a URL |
 
 ### The single-provider risk is real and was measured
+
+*Superseded 2026-10-02 — see* Provider change *below. Kept for the record.*
 
 Checked live on 2026-09-23:
 
@@ -189,7 +192,11 @@ single point of failure, and that is recorded rather than hidden.
 
 **Status 2026-09-23:** 10 of 13 covered by automated tests (38 assertions across
 `imageDoubts.test.ts` and `mistralVision.test.ts`, plus one row in the authz matrix). Criteria 1, 2
-and 13 need a working Mistral quota — see *Blocked on quota*.
+and 13 need a working vision provider — see *Provider change*.
+
+**2026-10-02:** criterion 1's backend half verified live through `describeImage` and
+`parseVisionJson` against Groq. Provider tests now live in `openaiCompatibleVision.test.ts` and
+`visionProviders.test.ts`. The in-browser check (1, 2, 13) remains manual.
 
 1. A student uploads a photo of a handwritten question and the form fills in.
 2. The posted doubt is searchable by CC-11 and has an embedding.
@@ -212,10 +219,37 @@ and 13 need a working Mistral quota — see *Blocked on quota*.
   rejection path with a mocked Supabase and a mocked provider. The provider against its retry ladder
   with injected `fetch` and `sleep` — nothing touches the network.
 - **Integration:** one row in `src/__tests__/authz/matrix.test.ts`.
-- **Manual (blocked):** photograph a real handwritten question in poor light; confirm the
+- **Manual:** photograph a real handwritten question in poor light; confirm the
   transcription, confirm a deliberately blurred photo returns 422 rather than a plausible invention.
 
-## Blocked on quota
+## Provider change (2026-10-02)
+
+Vision moved to **Groq**: `qwen/qwen3.8-27b` on `GROQ_API_KEY2`. Mistral stays wired as a fallback,
+used only if `MISTRAL_API_KEY` is set.
+
+Checked live on 2026-10-02:
+
+- `qwen/qwen3.8-27b` accepts images. It was in the 2026-09-23 catalogue too, but was assumed to be
+  text-only. A test question came back exactly, LaTeX included, as clean JSON in about half a second
+  with the real `INSTRUCTION`.
+- Groq takes `image_url` as `{ "url": "data:..." }` and rejects a plain string. Mistral is the
+  opposite. The provider takes an `imageUrlFormat` option for that reason.
+- The primary key's Groq project blocks the model (`403 model_permission_blocked_project`). Only
+  `GROQ_API_KEY2` can call it, so vision prefers that key. A project admin can enable the model for
+  the primary key at https://console.groq.com/settings/project/limits.
+- Free tier: 7,000 input tokens a minute, about 2,300 per photo, so roughly three image doubts a
+  minute per project.
+- Groq rejects base64 images over 4 MB, so `VISION_MAX_IMAGE_BYTES` now defaults to 3 MB.
+- Qwen3 is a reasoning model. The provider strips any `<think>` block, because `parseVisionJson`
+  takes the first `{` it finds.
+
+`GROQ_API_KEY2` also became the generation fallback for CC-12 and CC-15, ahead of Mistral. That
+closes the "no working fallback" gap described below.
+
+## Blocked on quota (resolved 2026-10-02)
+
+*Historical. Resolved by the provider change above, not by restoring the Mistral quota.*
+
 
 The code is complete and the suite is green, but the feature **cannot be demonstrated** right now.
 As of 2026-09-23 the Mistral API key returns `429 Rate limit exceeded` on every

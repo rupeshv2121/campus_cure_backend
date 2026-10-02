@@ -1,17 +1,20 @@
 /**
- * CC-50: the Mistral vision provider.
+ * CC-50: the OpenAI-compatible vision provider (Groq and Mistral).
  *
  * All offline — `fetch` and `sleep` are injected, so the retry ladder is
  * exercised without network access and without the suite actually sleeping.
  *
  * The request shape is asserted in detail because it was discovered by trial
- * against the live API rather than read from a stable spec: Mistral takes
- * `image_url` as a bare string, where the OpenAI shape everything else in this
- * codebase follows would send `{ url }`. A refactor that "tidies" that into an
- * object breaks the feature with a 422 that looks nothing like the cause.
+ * against the live APIs rather than read from a stable spec: Mistral takes
+ * `image_url` as a bare string, Groq only as `{ url }`, and each rejects the
+ * other's. A refactor that "tidies" one into the other breaks that provider
+ * with an error that looks nothing like the cause.
  */
 import { describe, expect, it, vi } from "vitest";
-import { MistralVisionProvider } from "../../services/ai/vision/mistralVision.js";
+import {
+  OpenAICompatibleVisionProvider,
+  type ImageUrlFormat,
+} from "../../services/ai/vision/openaiCompatibleVision.js";
 import {
   EmptyVisionError,
   VisionProviderError,
@@ -35,10 +38,17 @@ const errorResponse = (status: number, body = "boom") =>
     text: async () => body,
   }) as unknown as Response;
 
-const makeProvider = (fetchImpl: typeof fetch, maxAttempts = 3) =>
-  new MistralVisionProvider({
+const makeProvider = (
+  fetchImpl: typeof fetch,
+  maxAttempts = 3,
+  imageUrlFormat: ImageUrlFormat = "string",
+) =>
+  new OpenAICompatibleVisionProvider({
+    name: "test-vision",
+    baseUrl: "https://vision.test/v1/",
     apiKey: "sk-test",
     model: "vision-test",
+    imageUrlFormat,
     maxAttempts,
     fetchImpl,
     sleepImpl: async () => undefined,
@@ -54,11 +64,15 @@ const bodyOf = (fetchImpl: ReturnType<typeof vi.fn>, n = 0) =>
     max_tokens: number;
     messages: Array<{
       role: string;
-      content: Array<{ type: string; text?: string; image_url?: string }>;
+      content: Array<{
+        type: string;
+        text?: string;
+        image_url?: string | { url: string };
+      }>;
     }>;
   };
 
-describe("MistralVisionProvider", () => {
+describe("OpenAICompatibleVisionProvider", () => {
   it("returns the description", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(okResponse("a question"));
     await expect(
@@ -66,7 +80,15 @@ describe("MistralVisionProvider", () => {
     ).resolves.toBe("a question");
   });
 
-  it("inlines the image as a base64 data URI, as a bare string", async () => {
+  it("posts to the configured base URL without a doubled slash", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(okResponse("ok"));
+    await makeProvider(fetchImpl as unknown as typeof fetch).describe(image, "x");
+    expect(fetchImpl.mock.calls[0]![0]).toBe(
+      "https://vision.test/v1/chat/completions",
+    );
+  });
+
+  it("inlines the image as a base64 data URI, as a bare string (Mistral)", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(okResponse("ok"));
     await makeProvider(fetchImpl as unknown as typeof fetch).describe(
       image,
@@ -81,6 +103,41 @@ describe("MistralVisionProvider", () => {
     expect(parts[1]!.image_url).toBe(
       `data:image/png;base64,${Buffer.from("PNGBYTES").toString("base64")}`,
     );
+  });
+
+  it("wraps the data URI as { url } when asked (Groq)", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(okResponse("ok"));
+    await makeProvider(fetchImpl as unknown as typeof fetch, 3, "object").describe(
+      image,
+      "read it",
+    );
+
+    const parts = bodyOf(fetchImpl).messages[0]!.content;
+    expect(parts[1]!.image_url).toEqual({
+      url: `data:image/png;base64,${Buffer.from("PNGBYTES").toString("base64")}`,
+    });
+  });
+
+  /**
+   * The doubt parser takes the first `{` it finds. A brace inside a reasoning
+   * block would hand it the wrong object.
+   */
+  it("strips a <think> block emitted before the answer", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(okResponse('<think>maybe {x}?</think>\n{"title":"t"}'));
+    await expect(
+      makeProvider(fetchImpl as unknown as typeof fetch).describe(image, "x"),
+    ).resolves.toBe('{"title":"t"}');
+  });
+
+  it("treats a reply that is only reasoning as empty", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(okResponse("<think>still thinking", "length"));
+    await expect(
+      makeProvider(fetchImpl as unknown as typeof fetch, 1).describe(image, "x"),
+    ).rejects.toBeInstanceOf(EmptyVisionError);
   });
 
   /**
