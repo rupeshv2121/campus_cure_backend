@@ -44,6 +44,7 @@ vi.mock("./../../services/storage/supabaseStorage.js", () => ({
 
 import {
   AttachmentError,
+  bindPostAttachments,
   confirmAttachments,
   listForEntities,
 } from "../../services/storage/attachments.js";
@@ -128,5 +129,97 @@ describe("with storage live", () => {
   it("does not query for an empty entity list", async () => {
     await expect(listForEntities("DOUBT", [])).resolves.toEqual(new Map());
     expect(db.prisma.attachment.findMany).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * CC-23 inline images ride on the same binding as the attachment tray. These
+ * tests cover only what bindPostAttachments adds on top of confirmAttachments:
+ * merging the two sources, and letting an edit keep images already bound.
+ */
+describe("bindPostAttachments", () => {
+  beforeEach(() => {
+    env.STORAGE_ENABLED = true;
+  });
+
+  it("does nothing, and queries nothing, for a post with no files", async () => {
+    await expect(
+      bindPostAttachments({
+        entityType: "DOUBT",
+        entityId: "d-1",
+        userId: "u-1",
+        attachmentIds: undefined,
+        inlineImageIds: [],
+      } as Parameters<typeof bindPostAttachments>[0]),
+    ).resolves.toEqual([]);
+    expect(db.prisma.attachment.findMany).not.toHaveBeenCalled();
+  });
+
+  it("skips images already bound to this post, so an edit can keep them", async () => {
+    // First query: which ids are already bound here. Second: confirm's lookup.
+    db.prisma.attachment.findMany
+      .mockResolvedValueOnce([{ id: "img-old" }])
+      .mockResolvedValueOnce([]);
+
+    const error = await bindPostAttachments({
+      entityType: "DOUBT",
+      entityId: "d-1",
+      userId: "u-1",
+      inlineImageIds: ["img-old", "img-new"],
+    } as Parameters<typeof bindPostAttachments>[0]).catch((e) => e);
+
+    // Only the new id reaches confirm, which then 404s on our empty mock.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const confirmWhere = db.prisma.attachment.findMany.mock.calls[1]![0].where as any;
+    expect(confirmWhere.id.in).toEqual(["img-new"]);
+    expect(error).toBeInstanceOf(AttachmentError);
+  });
+
+  it("scopes 'already bound' to this post, type and ATTACHED state", async () => {
+    db.prisma.attachment.findMany
+      .mockResolvedValueOnce([{ id: "img-1" }]);
+
+    await bindPostAttachments({
+      entityType: "ANSWER",
+      entityId: "a-9",
+      userId: "u-1",
+      attachmentIds: ["img-1"],
+    } as Parameters<typeof bindPostAttachments>[0]);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where = db.prisma.attachment.findMany.mock.calls[0]![0].where as any;
+    expect(where).toMatchObject({
+      entityType: "ANSWER",
+      entityId: "a-9",
+      status: "ATTACHED",
+    });
+  });
+
+  /**
+   * Naming an image that is attached to someone else's post must fail the
+   * request, not borrow the file. confirmAttachments' state check does that;
+   * this asserts the inline path actually reaches it.
+   */
+  it("refuses an inline image already bound to a different post", async () => {
+    db.prisma.attachment.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: "img-x",
+          uploadedById: "u-1",
+          status: "ATTACHED",
+          entityType: "DOUBT",
+        },
+      ]);
+
+    const error = await bindPostAttachments({
+      entityType: "DOUBT",
+      entityId: "d-mine",
+      userId: "u-1",
+      inlineImageIds: ["img-x"],
+    } as Parameters<typeof bindPostAttachments>[0]).catch((e) => e);
+
+    expect(error).toBeInstanceOf(AttachmentError);
+    expect((error as AttachmentError).status).toBe(409);
   });
 });

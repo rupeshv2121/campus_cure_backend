@@ -1,4 +1,11 @@
-import { ComplaintStatus, ApprovalStatus, DoubtStatus, Prisma, Role } from "@prisma/client";
+import {
+  ApprovalStatus,
+  AttachmentEntity,
+  ComplaintStatus,
+  DoubtStatus,
+  Prisma,
+  Role,
+} from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "../config/database.js";
 import { generateDraftForDoubt } from "../services/ai/answerDraft.js";
@@ -10,7 +17,14 @@ import {
   listDirectory,
   rankCandidates,
 } from "../services/staff/routing.js";
-import { AttachmentError } from "../services/storage/attachments.js";
+import {
+  AttachmentError,
+  bindPostAttachments,
+} from "../services/storage/attachments.js";
+import {
+  extractInlineImageIds,
+  prepareEdit,
+} from "../services/content/sanitize.js";
 import {
   attachResolutionEvidence,
   withEvidence,
@@ -844,10 +858,22 @@ export const editAnswer = async (
       editedAt: new Date().toISOString(),
     });
 
+    // CC-23: sanitised in the format the answer was stored as. Writing the
+    // body raw here let an HTML answer be edited into stored XSS.
+    const preparedContent = prepareEdit(content, existingAnswer.contentFormat);
+
+    // Bound before the write, so an unbindable image fails the edit cleanly.
+    await bindPostAttachments({
+      entityType: AttachmentEntity.ANSWER,
+      entityId: answerId,
+      userId: req.user!.id,
+      inlineImageIds: extractInlineImageIds(preparedContent),
+    });
+
     const answer = await prisma.answer.update({
       where: { id: answerId },
       data: {
-        content,
+        content: preparedContent,
         edited: true,
         editHistory,
       },
@@ -855,6 +881,11 @@ export const editAnswer = async (
 
     res.json({ message: "Answer updated successfully", answer });
   } catch (error) {
+    if (error instanceof AttachmentError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+
     console.error("Error editing answer:", error);
     res.status(500).json({ error: "Internal server error" });
   }

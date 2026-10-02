@@ -54,6 +54,20 @@ const ROUTES: RouteCase[] = [
     allow: ["STUDENT", "FACULTY"],
   },
   { method: "get", path: "/api/faculty/me", allow: ["FACULTY"] },
+  // CC-26: performance statistics are private to the person and to admins.
+  // A student or another role reaching these is the failure this feature is
+  // designed around, so each guard is asserted rather than inferred.
+  { method: "get", path: "/api/faculty/me/stats", allow: ["FACULTY"] },
+  {
+    method: "get",
+    path: "/api/admin/faculty/stats",
+    allow: ["ADMIN", "SUPER_ADMIN"],
+  },
+  {
+    method: "get",
+    path: "/api/admin/faculty/x/stats",
+    allow: ["ADMIN", "SUPER_ADMIN"],
+  },
   // CC-12: AI answer drafts must never be reachable by a student or an admin.
   { method: "get", path: "/api/faculty/doubts/x/draft", allow: ["FACULTY"] },
   {

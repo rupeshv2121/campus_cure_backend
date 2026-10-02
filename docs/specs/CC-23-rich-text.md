@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Implemented 2026-09-21** — migration applied; inline images not yet wired (CC-02 live since 2026-09-22) |
+| **Status** | **Implemented 2026-09-21** — inline images added 2026-10-02; manual in-browser check outstanding |
 | **Phase** | 2 |
 | **Branch** | `feat/CC-23-rich-text` |
 | **Repos** | both |
@@ -154,6 +154,41 @@ Images are still out, as specced: `img` is stripped by the sanitiser and the edi
 no image affordance, so nothing offers a student something that would silently fail
 while CC-02 is dormant.
 
+## Inline images (2026-10-02)
+
+Added once CC-02's bucket was live.
+
+**Stored form.** `<img data-attachment-id="<uuid>" alt="…">` and nothing else. The sanitiser drops
+any `img` without a well-formed uuid, and strips `src` from the ones it keeps. A stored URL would be
+dead within minutes because the bucket is private and signed URLs expire. An arbitrary `src` would
+also be a tracking pixel that reports every reader to whoever wrote the post. The reader mints a
+signed URL at render time (`lib/inlineImages.ts`), cached for that URL's lifetime.
+
+**Binding.** `bindPostAttachments` merges the attachment tray with the ids found in the sanitised
+body and sends them through `confirmAttachments`. So inline images get the same ownership check,
+the same "not already attached elsewhere" check and the same five-file cap. An image in the body
+counts toward the five. Naming another user's attachment fails the request with 403 or 409 rather
+than borrowing their file. On edit, ids already bound to that post are skipped, so it keeps its
+images.
+
+**Display.** Inline images are hidden from the attachment list under the post, so nothing appears
+twice. An image removed from the body during an edit stays bound and reappears in that list. It is
+not deleted.
+
+**Editor.** An image button appears only where the page passes `imageEntity` (`DOUBT` or `ANSWER`).
+Uploads go through the same location-data stripping as the attachment tray (CC-30). Pasted or
+dropped images with a `src` are not parsed into the document, so the editor cannot produce an image
+that silently disappears on save.
+
+**Fixed along the way:**
+
+- **Stored XSS through edits.** `editDoubt` and both `editAnswer` handlers (student and faculty)
+  wrote the new body without sanitising it. An HTML post could be edited through the API into a
+  `<script>` or `onerror` payload that ran for every reader. Edits now go through `prepareEdit`,
+  in the post's stored format.
+- Edit mode used a plain textarea, so editing an HTML post showed raw tags. It now uses the editor.
+- `FacultyDoubtDetail` rendered posts without their format, so faculty saw HTML posts as raw tags.
+
 ## Risks & mitigations
 
 | Risk | Likelihood | Impact | Mitigation |
@@ -174,5 +209,5 @@ columns costs nothing.
 
 1. Should the editor be offered for complaints too? Currently no — a complaint describes a broken
    chair.
-2. Inline images once CC-02 is live: the uploader exists, so it is mostly editor wiring.
+2. ~~Inline images once CC-02 is live.~~ Done 2026-10-02 — see *Inline images*.
 3. Should `descriptionFormat` eventually accept `MARKDOWN`? Only if something starts producing it.

@@ -325,6 +325,47 @@ export const confirmAttachments = async (
   });
 };
 
+/**
+ * Bind a post's files: the attachment tray plus any inline images (CC-23).
+ *
+ * Inline images go through `confirmAttachments` like any other file, so the
+ * same ownership, state and per-post cap apply — an image in the body counts
+ * toward the five. Ids already bound to THIS post are skipped, which is what
+ * lets an edit keep the images it already had.
+ */
+export const bindPostAttachments = async (input: {
+  entityType: AttachmentEntity;
+  entityId: string;
+  userId: string;
+  attachmentIds?: unknown;
+  inlineImageIds?: string[];
+}): Promise<Attachment[]> => {
+  const requested = [
+    ...(Array.isArray(input.attachmentIds) ? input.attachmentIds : []),
+    ...(input.inlineImageIds ?? []),
+  ].filter((id): id is string => typeof id === "string" && id.length > 0);
+
+  if (requested.length === 0) return [];
+
+  const already = await prisma.attachment.findMany({
+    where: {
+      id: { in: requested },
+      entityType: input.entityType,
+      entityId: input.entityId,
+      status: AttachmentStatus.ATTACHED,
+    },
+    select: { id: true },
+  });
+  const bound = new Set(already.map((row) => row.id));
+
+  return confirmAttachments({
+    attachmentIds: requested.filter((id) => !bound.has(id)),
+    entityType: input.entityType,
+    entityId: input.entityId,
+    userId: input.userId,
+  });
+};
+
 /** Confirmed attachments for one entity. PENDING rows are never returned. */
 export const listForEntity = async (
   entityType: AttachmentEntity,

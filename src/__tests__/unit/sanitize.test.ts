@@ -8,11 +8,15 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  extractInlineImageIds,
   hasMath,
   prepareContent,
+  prepareEdit,
   sanitizeRichText,
   toPlainText,
 } from "../../services/content/sanitize.js";
+
+const IMAGE_ID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
 
 describe("what must never survive", () => {
   it("strips a script tag and its contents", () => {
@@ -62,10 +66,29 @@ describe("what must never survive", () => {
     }
   });
 
-  it("strips img entirely — inline images are CC-02's, not this spec's", () => {
+  /**
+   * Inline images name an attachment, never a URL. An arbitrary src is a
+   * tracking pixel that reports every reader to whoever wrote the post.
+   */
+  it("drops an img that has only a src", () => {
     expect(sanitizeRichText('<img src="https://x.test/a.png">')).not.toContain(
       "img",
     );
+  });
+
+  it("drops an img whose attachment id is not a uuid", () => {
+    expect(
+      sanitizeRichText('<img data-attachment-id="../../etc/passwd">'),
+    ).not.toContain("img");
+  });
+
+  it("strips src, data: and handlers from an otherwise valid inline image", () => {
+    const out = sanitizeRichText(
+      `<img data-attachment-id="${IMAGE_ID}" src="data:image/png;base64,AAAA" onerror="alert(1)">`,
+    );
+    expect(out).toContain(`data-attachment-id="${IMAGE_ID}"`);
+    expect(out).not.toContain("src");
+    expect(out).not.toContain("onerror");
   });
 
   it("strips form inputs", () => {
@@ -146,6 +169,60 @@ describe("what must survive", () => {
     expect(sanitizeRichText('<a href="mailto:a@b.edu">mail</a>')).toContain(
       "mailto:a@b.edu",
     );
+  });
+});
+
+describe("inline images", () => {
+  it("keeps an image by attachment id, with its alt text", () => {
+    expect(
+      sanitizeRichText(`<p><img data-attachment-id="${IMAGE_ID}" alt="circuit"></p>`),
+    ).toBe(`<p><img data-attachment-id="${IMAGE_ID}" alt="circuit" /></p>`);
+  });
+
+  it("lowercases the id, so the bound id and the rendered id match", () => {
+    expect(
+      sanitizeRichText(`<img data-attachment-id="${IMAGE_ID.toUpperCase()}">`),
+    ).toContain(`data-attachment-id="${IMAGE_ID}"`);
+  });
+
+  it("extracts each referenced id once, in order", () => {
+    const other = "11111111-2222-3333-4444-555555555555";
+    const html = sanitizeRichText(
+      `<img data-attachment-id="${IMAGE_ID}"><p>x</p>` +
+        `<img data-attachment-id="${other}"><img data-attachment-id="${IMAGE_ID}">`,
+    );
+    expect(extractInlineImageIds(html)).toEqual([IMAGE_ID, other]);
+  });
+
+  it("extracts nothing from text without images", () => {
+    expect(extractInlineImageIds("<p>none</p>")).toEqual([]);
+    expect(extractInlineImageIds(null)).toEqual([]);
+  });
+
+  it("leaves no trace of an image in the plain text", () => {
+    expect(
+      toPlainText(`<p>see <img data-attachment-id="${IMAGE_ID}" alt="x"> here</p>`, "HTML"),
+    ).toBe("see here");
+  });
+});
+
+/**
+ * The edit handlers used to write the body unsanitised, so an HTML post could
+ * be edited into stored XSS. Edits now go through this.
+ */
+describe("prepareEdit", () => {
+  it("sanitises an edit to an HTML post", () => {
+    const out = prepareEdit('<p>ok</p><img src=x onerror="alert(1)">', "HTML");
+    expect(out).toBe("<p>ok</p>");
+  });
+
+  it("leaves an edit to a TEXT post exactly as typed", () => {
+    expect(prepareEdit("a < b && <script>", "TEXT")).toBe("a < b && <script>");
+  });
+
+  it("is safe on non-string input", () => {
+    expect(prepareEdit({ evil: true }, "HTML")).toBe("");
+    expect(prepareEdit(undefined, "TEXT")).toBe("");
   });
 });
 

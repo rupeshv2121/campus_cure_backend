@@ -33,6 +33,9 @@ export const AuditAction = {
   FACE_CLEAR: "face.clear",
   DATA_EXPORT: "data.export",
   DATA_ERASE: "data.erase",
+  // CC-26: a read, but of one person's performance record. Overview reads
+  // are not logged; opening an individual is.
+  FACULTY_STATS_VIEW: "faculty.stats_view",
 } as const;
 
 export type AuditActionValue =

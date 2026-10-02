@@ -17,6 +17,25 @@ import { ContentFormat } from "@prisma/client";
 import sanitizeHtml from "sanitize-html";
 
 /**
+ * Inline images (CC-23, on top of CC-02 storage).
+ *
+ * A stored post never carries an image URL. It carries
+ * `<img data-attachment-id="<uuid>">` and the reader mints a signed URL at
+ * render time, because:
+ *
+ *  - the bucket is private, and signed URLs expire in minutes, so any URL
+ *    written into the HTML would be dead by the next visit;
+ *  - an arbitrary `src` is a tracking pixel: every reader's IP and timing,
+ *    sent to whoever wrote the post. `data:` URIs are unbounded and unscanned.
+ *
+ * The id still has to be bound to the post through `confirmAttachments`,
+ * which checks ownership and state — so naming someone else's attachment
+ * here fails the request rather than borrowing their file.
+ */
+const INLINE_IMAGE_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
  * The allow-list.
  *
  * Everything not named here is dropped, which is the right default: a
@@ -43,6 +62,8 @@ const OPTIONS: sanitizeHtml.IOptions = {
     "a",
     // KaTeX math and the code highlighter both need a plain span.
     "span",
+    // Inline images, by attachment id only. See INLINE_IMAGE below.
+    "img",
   ],
   allowedAttributes: {
     // `rel` and `target` must be allowed here as well as set by
@@ -56,7 +77,14 @@ const OPTIONS: sanitizeHtml.IOptions = {
     span: ["class"],
     code: ["class"],
     pre: ["class"],
+    // No `src`, ever. See INLINE_IMAGE below.
+    img: ["data-attachment-id", "alt"],
   },
+  // An image that does not name a well-formed attachment id is dropped
+  // entirely, rather than surviving as an empty <img>.
+  exclusiveFilter: (frame) =>
+    frame.tag === "img" &&
+    !INLINE_IMAGE_ID.test(frame.attribs["data-attachment-id"] ?? ""),
   // Anything else - data:, javascript:, vbscript: - is dropped with the
   // attribute.
   allowedSchemes: ["http", "https", "mailto"],
@@ -67,6 +95,15 @@ const OPTIONS: sanitizeHtml.IOptions = {
     a: sanitizeHtml.simpleTransform("a", {
       rel: "noopener noreferrer nofollow",
       target: "_blank",
+    }),
+    // Lowercased so the id stored in the HTML is the exact string bound by
+    // confirmAttachments and later resolved by the reader.
+    img: (tagName, attribs) => ({
+      tagName,
+      attribs: {
+        ...attribs,
+        "data-attachment-id": (attribs["data-attachment-id"] ?? "").toLowerCase(),
+      },
     }),
   },
   // Drop the contents too, rather than leaving the script body as visible
@@ -97,6 +134,41 @@ export const prepareContent = (
   }
 
   return { value: typeof body === "string" ? body : "", format: ContentFormat.TEXT };
+};
+
+/**
+ * Sanitise an EDIT to an existing post, in the format it was stored as.
+ *
+ * Edits keep their original format: the editor that wrote an HTML post is the
+ * one that edits it. Before this existed the edit handlers wrote the body
+ * unsanitised, so an HTML post could be edited into stored XSS.
+ */
+export const prepareEdit = (
+  body: unknown,
+  storedFormat: ContentFormat,
+): string =>
+  storedFormat === ContentFormat.HTML
+    ? sanitizeRichText(body)
+    : typeof body === "string"
+      ? body
+      : "";
+
+/**
+ * Attachment ids referenced by inline images, in order, without duplicates.
+ *
+ * Reads only ALREADY-SANITISED HTML, so every id here has passed the
+ * well-formedness check above.
+ */
+export const extractInlineImageIds = (
+  html: string | null | undefined,
+): string[] => {
+  if (!html) return [];
+
+  const ids = new Set<string>();
+  for (const match of html.matchAll(/<img\b[^>]*\bdata-attachment-id="([^"]+)"/gi)) {
+    ids.add(match[1]!.toLowerCase());
+  }
+  return [...ids];
 };
 
 /**

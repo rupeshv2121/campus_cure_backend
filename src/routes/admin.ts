@@ -30,8 +30,27 @@ import {
   updateUserApprovalStatus,
 } from "../controllers/adminController.js";
 import { authenticate, authorize } from "../middleware/auth.js";
+import {
+  getFacultyStatsForUser,
+  getFacultyStatsOverview,
+} from "../controllers/facultyStatsController.js";
 
 const router = Router();
+
+// CC-26: faculty performance statistics. Admin oversight only - there is no
+// route that shows a named faculty member's numbers to anyone else.
+router.get(
+  "/faculty/stats",
+  authenticate,
+  authorize(Role.ADMIN, Role.SUPER_ADMIN),
+  getFacultyStatsOverview,
+);
+router.get(
+  "/faculty/:id/stats",
+  authenticate,
+  authorize(Role.ADMIN, Role.SUPER_ADMIN),
+  getFacultyStatsForUser,
+);
 
 // CC-13: likely-duplicate clusters among open complaints. Read-only.
 router.get(

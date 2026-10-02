@@ -20,6 +20,7 @@ import {
   verifyAnswer,
 } from "../controllers/facultyController.js";
 import { authenticate, authorize } from "../middleware/auth.js";
+import { getMyStats } from "../controllers/facultyStatsController.js";
 
 const router = Router();
 
@@ -46,6 +47,9 @@ router.get("/me", authenticate, authorize(Role.FACULTY), getFacultyProfile);
 
 // 10. Update Faculty Profile
 router.put("/me", authenticate, authorize(Role.FACULTY), updateFacultyProfile);
+
+// CC-26: the caller's own performance statistics. Never anyone else's.
+router.get("/me/stats", authenticate, authorize(Role.FACULTY), getMyStats);
 
 // ========== DOUBTS ==========
 

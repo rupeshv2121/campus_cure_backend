@@ -24,12 +24,17 @@ import {
 import type { AuthRequest, RejectionHistoryEntry } from "../types/index.js";
 import {
   AttachmentError,
+  bindPostAttachments,
   confirmAttachments,
   listForEntities,
 } from "../services/storage/attachments.js";
 import { initialSlaDueAt } from "../services/sla/policy.js";
 import { withEvidence } from "../services/storage/resolutionEvidence.js";
-import { prepareContent } from "../services/content/sanitize.js";
+import {
+  extractInlineImageIds,
+  prepareContent,
+  prepareEdit,
+} from "../services/content/sanitize.js";
 import {
   ReputationReason,
   awardReputation,
@@ -838,17 +843,17 @@ export const postDoubt = async (
 
     // CC-10: queue the doubt for embedding, then return immediately.
     // Never inline: a provider cold start is 20+ seconds, and an AI outage must
-    // CC-24: bind any uploaded files now the doubt exists and has an id.
-    // Inert while CC-02 is dormant - confirmAttachments refuses with a 503
-    // that the catch below turns into a clean error rather than a 500.
-    if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
-      await confirmAttachments({
-        attachmentIds,
-        entityType: AttachmentEntity.DOUBT,
-        entityId: doubt.id,
-        userId: req.user!.id,
-      });
-    }
+    // CC-24: bind any uploaded files now the doubt exists and has an id,
+    // including images placed inline in the body (CC-23). Inert while CC-02 is
+    // dormant - confirmAttachments refuses with a 503 that the catch below
+    // turns into a clean error rather than a 500.
+    await bindPostAttachments({
+      entityType: AttachmentEntity.DOUBT,
+      entityId: doubt.id,
+      userId: req.user!.id,
+      attachmentIds,
+      inlineImageIds: extractInlineImageIds(preparedDescription.value),
+    });
 
     // never stop a student posting a doubt. requestEmbedding does not throw.
     await requestEmbedding("doubt", doubt.id);
@@ -1323,11 +1328,28 @@ export const editDoubt = async (
       editedAt: new Date().toISOString(),
     });
 
+    // CC-23: sanitised in the format the doubt was stored as. Writing the
+    // body raw here let an HTML doubt be edited into stored XSS.
+    const preparedDescription = description
+      ? prepareEdit(description, existingDoubt.descriptionFormat)
+      : undefined;
+
+    // Bound before the write: an edit naming an image the student cannot
+    // bind must fail without changing the doubt.
+    if (preparedDescription) {
+      await bindPostAttachments({
+        entityType: AttachmentEntity.DOUBT,
+        entityId: id,
+        userId: req.user!.id,
+        inlineImageIds: extractInlineImageIds(preparedDescription),
+      });
+    }
+
     const doubt = await prisma.doubt.update({
       where: { id },
       data: {
         ...(title && { title }),
-        ...(description && { description }),
+        ...(preparedDescription && { description: preparedDescription }),
         ...(subject && { subject }),
         ...(labels ? prepareTags(labels) : {}),
         edited: true,
@@ -1337,7 +1359,7 @@ export const editDoubt = async (
 
     res.json({ message: "Doubt updated successfully", doubt });
   } catch (error) {
-    if (error instanceof TagError) {
+    if (error instanceof TagError || error instanceof AttachmentError) {
       res.status(error.status).json({ error: error.message });
       return;
     }
@@ -1812,15 +1834,15 @@ export const postAnswer = async (
       }),
     ]);
 
-    // CC-24: bind uploaded files now the answer has an id.
-    if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
-      await confirmAttachments({
-        attachmentIds,
-        entityType: AttachmentEntity.ANSWER,
-        entityId: answer.id,
-        userId: req.user!.id,
-      });
-    }
+    // CC-24: bind uploaded files now the answer has an id, including inline
+    // images (CC-23).
+    await bindPostAttachments({
+      entityType: AttachmentEntity.ANSWER,
+      entityId: answer.id,
+      userId: req.user!.id,
+      attachmentIds,
+      inlineImageIds: extractInlineImageIds(preparedAnswer.value),
+    });
 
     // Note: Notification is sent only when answer is approved by faculty,
     // not when posted (to avoid notifying about pending answers)
@@ -1886,10 +1908,22 @@ export const editAnswer = async (
       editedAt: new Date().toISOString(),
     });
 
+    // CC-23: sanitised in the format the answer was stored as. Writing the
+    // body raw here let an HTML answer be edited into stored XSS.
+    const preparedContent = prepareEdit(content, existingAnswer.contentFormat);
+
+    // Bound before the write, so an unbindable image fails the edit cleanly.
+    await bindPostAttachments({
+      entityType: AttachmentEntity.ANSWER,
+      entityId: answerId,
+      userId: req.user!.id,
+      inlineImageIds: extractInlineImageIds(preparedContent),
+    });
+
     const answer = await prisma.answer.update({
       where: { id: answerId },
       data: {
-        content,
+        content: preparedContent,
         edited: true,
         editHistory,
       },
@@ -1897,6 +1931,11 @@ export const editAnswer = async (
 
     res.json({ message: "Answer updated successfully", answer });
   } catch (error) {
+    if (error instanceof AttachmentError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+
     console.error("Error editing answer:", error);
     res.status(500).json({ error: "Internal server error" });
   }

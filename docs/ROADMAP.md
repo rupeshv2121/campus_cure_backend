@@ -348,7 +348,7 @@ they conflict, and resolving it after both have applied locally is genuinely pai
 | CC-13 | [Duplicate complaint detection](specs/CC-13-complaint-dedup.md) | **Shipped** 2026-09-20 — complete (13/13) |
 | CC-14 | [Structured complaint intake](specs/CC-14-complaint-intake.md) | **Shipped** 2026-09-20 — complete |
 | CC-15 | [Tool-calling chatbot](specs/CC-15-chatbot.md) | **Shipped** 2026-09-20 — complete |
-| CC-23 | [Rich text editor](specs/CC-23-rich-text.md) | **Implemented** 2026-09-21 — migration applied; inline images not yet wired (CC-02 is now live) |
+| CC-23 | [Rich text editor](specs/CC-23-rich-text.md) | **Implemented** 2026-09-21 — inline images added 2026-10-02; edit-path XSS fixed |
 | CC-24 | [Doubt & answer attachments](specs/CC-24-doubt-attachments.md) | **Live** 2026-10-02 — bucket verified; manual upload check outstanding |
 | CC-42 | [Telegram notifications](specs/CC-42-telegram.md) | **Implemented** 2026-09-21 — migration applied; needs a bot token |
 | CC-25 | [Reputation & badges](specs/CC-25-reputation.md) | **Shipped** 2026-09-21 — backend and frontend |
@@ -363,6 +363,7 @@ they conflict, and resolving it after both have applied locally is genuinely pai
 | CC-05 | [Observability](specs/CC-05-observability.md) | **Implemented** 2026-09-23 — logging, request ids and error handling live; Sentry dormant until a DSN is set |
 | CC-30 | [Complaint photo evidence](specs/CC-30-complaint-evidence.md) | **Implemented** 2026-09-23 — before/after evidence, EXIF stripped client-side; one manual check outstanding |
 | CC-27 | [Staff directory](specs/CC-27-staff-directory.md) | **Implemented** 2026-09-23 — non-teaching staff are routable, opt-in directory; migration applied (verified 2026-10-02) |
+| CC-26 | [Faculty performance stats](specs/CC-26-faculty-stats.md) | **Implemented** 2026-10-02 — private to self + admin; verified live |
 | CC-20 | [Doubt tags](specs/CC-20-tags.md) | **Shipped** 2026-09-21 — migration applied |
 | CC-21 | [Doubt bookmarks](specs/CC-21-bookmarks.md) | **Shipped** 2026-09-21 — migration applied |
 | CC-22 | [Code syntax highlighting](specs/CC-22-code-highlighting.md) | **Shipped** 2026-09-21 |
