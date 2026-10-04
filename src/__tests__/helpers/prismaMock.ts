@@ -104,10 +104,12 @@ export const prismaMock = new Proxy(
         return vi.fn(async () => undefined);
       }
       if (prop === "$transaction") {
+        // Array form resolves every operation, as Prisma does - so a
+        // rejected operation inside a batch rejects the transaction.
         return vi.fn(async (arg: unknown) =>
           typeof arg === "function"
             ? (arg as (c: unknown) => unknown)(prismaMock)
-            : arg,
+            : Promise.all(arg as unknown[]),
         );
       }
       if (prop === "$queryRaw" || prop === "$executeRaw") {

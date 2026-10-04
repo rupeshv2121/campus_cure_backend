@@ -333,6 +333,19 @@ const main = async () => {
 
   /* ---------------- doubts and answers ---------------- */
   let doubtsCreated = 0;
+
+  /**
+   * Up to `count` distinct students, never `exclude`. Votes are created as
+   * real DoubtUpvote/AnswerUpvote rows: the seed used to write random counts
+   * with no rows behind them, so the numbers could not be reproduced, "have I
+   * upvoted this?" was always false, and un-voting drifted from a fake base.
+   */
+  const voters = (count: number, exclude: string): string[] => {
+    const pool = studentIds.filter((id) => id !== exclude);
+    const chosen = new Set<string>();
+    while (chosen.size < Math.min(count, pool.length)) chosen.add(pick(pool));
+    return [...chosen];
+  };
   let answersCreated = 0;
 
   for (const [index, seed] of DOUBTS.entries()) {
@@ -355,25 +368,40 @@ const main = async () => {
         status: seed.answer ? DoubtStatus.ANSWERED : DoubtStatus.OPEN,
         answerCount: seed.answer ? 1 : 0,
         views: Math.floor(rand() * 60),
-        upVoteCount: Math.floor(rand() * 8),
         createdAt: daysAgo(5 + Math.floor(rand() * 60)),
       },
       select: { id: true },
     });
     doubtsCreated++;
+    const doubtVoters = voters(Math.floor(rand() * 8), author);
+    await prisma.doubtUpvote.createMany({
+      data: doubtVoters.map((userId) => ({ doubtId: doubt.id, userId })),
+    });
+    await prisma.doubt.update({
+      where: { id: doubt.id },
+      data: { upVoteCount: doubtVoters.length },
+    });
     await enqueueEmbedding("doubt", doubt.id);
 
     if (seed.answer) {
-      await prisma.answer.create({
+      const answer = await prisma.answer.create({
         data: {
           doubtId: doubt.id,
           content: seed.answer,
           answeredById: pick(facultyIds),
           approvalStatus: ApprovalStatus.APPROVED,
           isVerified: seed.verified ?? false,
-          upvotes: Math.floor(rand() * 12),
           createdAt: daysAgo(2 + Math.floor(rand() * 20)),
         },
+        select: { id: true },
+      });
+      const answerVoters = voters(Math.floor(rand() * 12), "");
+      await prisma.answerUpvote.createMany({
+        data: answerVoters.map((userId) => ({ answerId: answer.id, userId })),
+      });
+      await prisma.answer.update({
+        where: { id: answer.id },
+        data: { upvotes: answerVoters.length },
       });
       answersCreated++;
     }
@@ -398,12 +426,19 @@ const main = async () => {
         postedById: author,
         status: DoubtStatus.OPEN,
         views: Math.floor(rand() * 30),
-        upVoteCount: Math.floor(rand() * 4),
         createdAt: daysAgo(1 + Math.floor(rand() * 25)),
       },
       select: { id: true },
     });
     doubtsCreated++;
+    const reaskVoters = voters(Math.floor(rand() * 4), author);
+    await prisma.doubtUpvote.createMany({
+      data: reaskVoters.map((userId) => ({ doubtId: doubt.id, userId })),
+    });
+    await prisma.doubt.update({
+      where: { id: doubt.id },
+      data: { upVoteCount: reaskVoters.length },
+    });
     await enqueueEmbedding("doubt", doubt.id);
   }
 

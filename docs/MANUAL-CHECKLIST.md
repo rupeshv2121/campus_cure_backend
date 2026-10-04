@@ -149,6 +149,20 @@ Faculty could not approve or reject student answers in production: the route ran
 
 ---
 
-## 6. Not built yet
+## 6. Data repair — vote counts (your decision)
+
+Fixed in code on 2026-10-04: votes on an answer were also added to the doubt's own upvote count, so
+the "Upvote this doubt" button showed an inflated number. Separately, the demo seed wrote random vote
+counts with **no vote rows** behind them; it now creates real votes.
+
+Stored counts are still out of step: on 2026-10-04, 48 of 56 doubts and 19 of 22 answers. Most of
+that is seed data, so fixing it sets most demo counts to their real value, usually 0.
+
+- [ ] See the current state (changes nothing):
+      `npx tsx src/scripts/reconcileCounters.ts`
+- [ ] Either reseed the demo data first (`npx tsx src/scripts/seedDemoData.ts`), or accept lower
+      numbers, then fix: `npx tsx src/scripts/reconcileCounters.ts --apply`
+
+## 7. Not built yet
 
 See the "Remaining" section of [ROADMAP.md](ROADMAP.md).

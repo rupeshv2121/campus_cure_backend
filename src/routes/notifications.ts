@@ -126,11 +126,11 @@ router.post("/push/unsubscribe", authenticate, async (req: AuthRequest, res) => 
 router.get("/", authenticate, async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
-    const limit = parseInt(req.query.limit as string) || 20;
+    // Capped: the panel asks for at most 100, and an uncapped value let any
+    // signed-in user ask the database for their entire history in one go.
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
 
-    console.log(`API: Getting notifications for user ${userId}`);
     const notifications = await getUserNotifications(userId, limit);
-    console.log(`API: Sending ${notifications.length} notifications`);
     res.json({ success: true, notifications });
   } catch (error) {
     console.error("Error fetching notifications:", error);

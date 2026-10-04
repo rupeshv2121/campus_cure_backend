@@ -870,6 +870,21 @@ export const upvoteDoubt = async (
       });
       return;
     }
+    // A double tap: the other request already made this change (P2002 on
+    // create, P2025 on delete). Report the state it left, not a 500.
+    const code = (error as { code?: string }).code;
+    if (code === "P2002" || code === "P2025") {
+      const current = await prisma.doubt.findUnique({
+        where: { id: req.params.doubtId as string },
+        select: { upVoteCount: true },
+      });
+      res.json({
+        message: "Doubt upvote already updated",
+        isUpvoted: code === "P2002",
+        upVoteCount: current?.upVoteCount ?? 0,
+      });
+      return;
+    }
     console.error("Error toggling doubt upvote:", error);
     res.status(500).json({ error: "Internal server error" });
   }
