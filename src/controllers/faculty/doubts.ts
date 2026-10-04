@@ -326,12 +326,12 @@ export const deleteAnswer = async (
       where: { id: answerId },
     });
 
-    // Update doubt's answer count and upvote count
+    // Update doubt's answer count. Not its upVoteCount: that counts votes on
+    // the doubt itself, and an answer's votes never belonged to it.
     await prisma.doubt.update({
       where: { id: existingAnswer.doubtId },
       data: {
         answerCount: { decrement: 1 },
-        upVoteCount: { decrement: existingAnswer.upvotes },
         // If this was the accepted answer, clear it and update status
         ...(doubt.acceptedAnswerId === answerId
           ? {
@@ -648,6 +648,21 @@ export const upvoteDoubt = async (
       res.status(503).json({
         error:
           "Doubt upvote feature is temporarily unavailable until database migration is applied",
+      });
+      return;
+    }
+    // A double tap: the other request already made this change (P2002 on
+    // create, P2025 on delete). Report the state it left, not a 500.
+    const code = (error as { code?: string }).code;
+    if (code === "P2002" || code === "P2025") {
+      const current = await prisma.doubt.findUnique({
+        where: { id: req.params.doubtId as string },
+        select: { upVoteCount: true },
+      });
+      res.json({
+        message: "Doubt upvote already updated",
+        isUpvoted: code === "P2002",
+        upVoteCount: current?.upVoteCount ?? 0,
       });
       return;
     }

@@ -67,81 +67,72 @@ export const upvoteAnswer = async (
     const answerId = req.params.answerId as string;
     const userId = req.user?.id as string;
 
-    // Check if user has already upvoted this answer
+    const exists = await prisma.answer.findUnique({
+      where: { id: answerId },
+      select: { id: true },
+    });
+    if (!exists) {
+      res.status(404).json({ error: "Answer not found" });
+      return;
+    }
+
     const existingUpvote = await prisma.answerUpvote.findUnique({
-      where: {
-        answerId_userId: {
-          answerId,
-          userId,
-        },
-      },
+      where: { answerId_userId: { answerId, userId } },
+      select: { id: true },
     });
 
     let answer;
-    let message;
-
-    if (existingUpvote) {
-      // User has already upvoted, so remove the upvote (decrement)
-      await prisma.answerUpvote.delete({
-        where: {
-          id: existingUpvote.id,
-        },
+    try {
+      // The vote row and the answer's count change together or not at all.
+      // The doubt's upVoteCount is NOT touched: it counts votes on the doubt
+      // itself, and adding answer votes to it inflated the number on the
+      // "Upvote this doubt" button.
+      answer = await prisma.$transaction(async (tx) => {
+        if (existingUpvote) {
+          await tx.answerUpvote.delete({ where: { id: existingUpvote.id } });
+        } else {
+          await tx.answerUpvote.create({ data: { answerId, userId } });
+        }
+        return tx.answer.update({
+          where: { id: answerId },
+          data: { upvotes: existingUpvote ? { decrement: 1 } : { increment: 1 } },
+        });
       });
-
-      answer = await prisma.answer.update({
-        where: { id: answerId },
-        data: { upvotes: { decrement: 1 } },
-      });
-
-      // Also update the doubt's upvote count
-      await prisma.doubt.update({
-        where: { id: answer.doubtId },
-        data: { upVoteCount: { decrement: 1 } },
-      });
-
-      // CC-25: the upvote is gone, so the points go with it.
-      await revokeReputation({
-        userId: answer.answeredById,
-        reason: ReputationReason.ANSWER_UPVOTED,
-        sourceType: "Answer",
-        sourceId: answerId,
-        actorId: userId,
-      });
-
-      message = "Answer upvote removed successfully";
-    } else {
-      // User hasn't upvoted yet, so add the upvote (increment)
-      await prisma.answerUpvote.create({
-        data: {
-          answerId,
-          userId,
-        },
-      });
-
-      answer = await prisma.answer.update({
-        where: { id: answerId },
-        data: { upvotes: { increment: 1 } },
-      });
-
-      // Also update the doubt's upvote count
-      await prisma.doubt.update({
-        where: { id: answer.doubtId },
-        data: { upVoteCount: { increment: 1 } },
-      });
-
-      // CC-25: self-upvotes and repeats score nothing - see the service.
-      await awardReputation({
-        userId: answer.answeredById,
-        reason: ReputationReason.ANSWER_UPVOTED,
-        sourceType: "Answer",
-        sourceId: answerId,
-        actorId: userId,
-      });
-
-      message = "Answer upvoted successfully";
+    } catch (error) {
+      // A double tap: the other request already made this change. Answer
+      // with the state it left rather than a 500.
+      const code = (error as { code?: string }).code;
+      if (code === "P2002" || code === "P2025") {
+        const current = await prisma.answer.findUnique({ where: { id: answerId } });
+        res.json({
+          message: "Answer upvote already updated",
+          answer: current,
+          isUpvoted: code === "P2002",
+        });
+        return;
+      }
+      throw error;
     }
 
-    res.json({ message, answer, isUpvoted: !existingUpvote });
+    // CC-25: the points follow the vote. Self-votes and repeats score nothing
+    // (see the service).
+    const points = {
+      userId: answer.answeredById,
+      reason: ReputationReason.ANSWER_UPVOTED,
+      sourceType: "Answer" as const,
+      sourceId: answerId,
+      actorId: userId,
+    };
+    if (existingUpvote) await revokeReputation(points);
+    else await awardReputation(points);
+
+    res.json({
+      message: existingUpvote
+        ? "Answer upvote removed successfully"
+        : "Answer upvoted successfully",
+      answer,
+      isUpvoted: !existingUpvote,
+    });
   } catch (error) {
     console.error("Error toggling answer upvote:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -380,12 +371,12 @@ export const deleteAnswer = async (
       where: { id: answerId },
     });
 
-    // Update doubt's answer count and upvote count
+    // Update doubt's answer count. Not its upVoteCount: that counts votes on
+    // the doubt itself, and an answer's votes never belonged to it.
     await prisma.doubt.update({
       where: { id: existingAnswer.doubtId },
       data: {
         answerCount: { decrement: 1 },
-        upVoteCount: { decrement: existingAnswer.upvotes },
         // If this was the accepted answer, clear it and update status
         ...(doubt.acceptedAnswerId === answerId
           ? {

@@ -66,15 +66,11 @@ export async function createNotification(params: CreateNotificationParams) {
 
 export async function getUserNotifications(userId: string, limit = 20) {
   try {
-    console.log(`Fetching notifications for user: ${userId}, limit: ${limit}`);
     const notifications = await prisma.notification.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
       take: limit,
     });
-    console.log(
-      `Found ${notifications.length} notifications for user ${userId}`,
-    );
     return notifications;
   } catch (error) {
     console.error("Error fetching notifications:", error);
@@ -107,14 +103,12 @@ export async function markAllNotificationsAsRead(userId: string) {
 
 export async function getUnreadNotificationCount(userId: string) {
   try {
-    console.log(`Getting unread count for user: ${userId}`);
     const count = await prisma.notification.count({
       where: {
         userId,
         read: false,
       },
     });
-    console.log(`User ${userId} has ${count} unread notifications`);
     return count;
   } catch (error) {
     console.error("Error getting unread count:", error);

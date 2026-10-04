@@ -280,7 +280,6 @@ export const getAllUsers = async (
         createdAt: "desc",
       },
     });
-    console.log("All users fetched:", users.length);
     res.json({ users });
   } catch (error) {
     console.error("Get all users error:", error);
