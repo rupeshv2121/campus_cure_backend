@@ -1,6 +1,8 @@
 import { NotificationType } from "@prisma/client";
 import { prisma } from "../config/database.js";
 import { queueNotificationEmail } from "../services/email/notificationEmail.js";
+import { triggerEmailDrainInBackground } from "../services/email/outbox.js";
+import { queueNotificationPush } from "../services/notify/push.js";
 
 export interface CreateNotificationParams {
   userId: string;
@@ -36,6 +38,18 @@ export async function createNotification(params: CreateNotificationParams) {
       data: notification.data,
       email,
     });
+
+    // CC-41: a browser alert on every device the user turned it on for.
+    // Never throws, for the same reason as the email above.
+    if (await queueNotificationPush({
+      notificationId: result.id,
+      userId: notification.userId,
+      type: notification.type,
+      title: notification.title,
+      message: notification.message,
+    })) {
+      triggerEmailDrainInBackground();
+    }
 
     return result;
   } catch (error) {

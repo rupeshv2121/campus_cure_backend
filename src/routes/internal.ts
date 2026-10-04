@@ -6,6 +6,7 @@ import { runEmbeddingDrain } from "../services/ai/embeddingWorker.js";
 import { runDraftGeneration } from "../services/ai/answerDraft.js";
 import { purgeExpiredRefreshTokens } from "../services/auth/refreshTokens.js";
 import { purgeExpiredFaceChallenges } from "../services/auth/faceChallenge.js";
+import { purgeExpiredMfaRecords } from "../services/auth/mfa.js";
 import { getSlaStats, runSlaSweep } from "../services/sla/escalation.js";
 import { runRetentionSweep } from "../services/privacy/retention.js";
 import { sweepAttachments } from "../services/storage/attachments.js";
@@ -266,6 +267,10 @@ const dailyHandler = async (req: Request, res: Response): Promise<void> => {
   // litter, but litter that accumulates once per failed login.
   await step("purgedFaceChallenges", async () => ({
     deleted: await purgeExpiredFaceChallenges(),
+  }));
+  // CC-62/63: dead 2FA challenges and email codes, same reasoning as above.
+  await step("purgedMfaRecords", async () => ({
+    deleted: await purgeExpiredMfaRecords(),
   }));
   // CC-64: purpose limitation. Only the mechanical tables are on a clock -
   // complaints, doubts, answers and audit rows are deliberately not.

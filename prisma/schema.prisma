@@ -51,6 +51,19 @@ model User {
   attachments        Attachment[]
   doubtBookmarks     DoubtBookmark[]
   faceChallenges     FaceChallenge[]
+  /// CC-62. TOTP secret, AES-256-GCM under MFA_ENCRYPTION_KEY. Null = 2FA off.
+  totpSecretEnc        String?
+  /// CC-62. Set when 2FA was confirmed with a working code.
+  totpEnabledAt        DateTime?
+  /// CC-62. Secret shown during setup, promoted only once a code proves the
+  /// authenticator app has it. Never used to log in.
+  totpPendingSecretEnc String?
+  /// CC-62. Last accepted 30-second step, so one code cannot be used twice.
+  totpLastStep         Int?
+  recoveryCodes        RecoveryCode[]
+  mfaChallenges        MfaChallenge[]
+  emailLoginCodes      EmailLoginCode[]
+  pushSubscriptions    PushSubscription[]
   consentRecords     ConsentRecord[]
   reputationEvents   ReputationEvent[]
   /// CC-42. Set once the user has messaged the bot with their link code.
@@ -682,6 +695,8 @@ model ReputationEvent {
 enum MessageChannel {
   EMAIL
   TELEGRAM
+  /// CC-41. `to` is a PushSubscription id; the body is the JSON payload.
+  PUSH
 }
 
 /// CC-23. Not a migration target: plain text is a perfectly good format, and
@@ -689,4 +704,70 @@ enum MessageChannel {
 enum ContentFormat {
   TEXT
   HTML
+}
+
+/// CC-62. One-time recovery codes for a locked-out 2FA user. Hash only: a code
+/// has ~50 bits of entropy, so SHA-256 is enough and a database leak is not a
+/// list of working codes.
+model RecoveryCode {
+  id        String    @id @default(uuid())
+  userId    String
+  codeHash  String    @unique
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// CC-62. The half-finished login between "password correct" and "TOTP code
+/// correct". Same shape and reasoning as FaceChallenge.
+model MfaChallenge {
+  id         String    @id @default(uuid())
+  userId     String
+  nonceHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int       @default(0)
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// CC-63. A six-digit code emailed in place of a password. HMAC-SHA-256 under
+/// MFA_ENCRYPTION_KEY, not plain SHA-256: there are only a million six-digit
+/// codes, so an unkeyed hash is reversed by trying them all.
+model EmailLoginCode {
+  id         String    @id @default(uuid())
+  userId     String
+  codeHash   String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int       @default(0)
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// CC-41. One browser that agreed to receive notifications. A user has one
+/// per device. The endpoint is a capability URL issued by the browser's push
+/// service, so it is unique and is the natural key for re-subscribing.
+model PushSubscription {
+  id            String    @id @default(uuid())
+  userId        String
+  endpoint      String    @unique
+  /// Browser's public key and auth secret, used to encrypt each payload so the
+  /// push service in the middle cannot read it.
+  p256dh        String
+  auth          String
+  userAgent     String?
+  createdAt     DateTime  @default(now())
+  lastSuccessAt DateTime?
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

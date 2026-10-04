@@ -119,6 +119,26 @@ const ROUTES: RouteCase[] = [
     path: "/api/me/erase",
     allow: ["STUDENT", "FACULTY", "ADMIN", "SUPER_ADMIN"],
   },
+  // CC-62: every signed-in role manages its own 2FA...
+  {
+    method: "get",
+    path: "/api/auth/2fa",
+    allow: ["STUDENT", "FACULTY", "ADMIN", "SUPER_ADMIN"],
+  },
+  // ...but only SUPER_ADMIN may reset someone else's. An ADMIN who could strip
+  // a fellow admin's second factor would be a privilege escalation (CC-01c).
+  {
+    method: "post",
+    path: "/api/admin/users/x/2fa/reset",
+    allow: ["SUPER_ADMIN"],
+  },
+  // CC-41: every signed-in role can receive notifications, so every role can
+  // register a browser for them.
+  {
+    method: "post",
+    path: "/api/notifications/push/subscribe",
+    allow: ["STUDENT", "FACULTY", "ADMIN", "SUPER_ADMIN"],
+  },
   // CC-61: the audit trail is SUPER_ADMIN only. Most entries are about ADMIN
   // behaviour, and a trail the audited party can read is one they can learn to
   // work around - so ADMIN is excluded deliberately, not by oversight.

@@ -29,6 +29,11 @@ import {
   verifySamples,
 } from "../services/auth/faceCrypto.js";
 import type { AuthRequest } from "../types/index.js";
+import {
+  SESSION_USER_SELECT,
+  afterFirstFactor,
+  issueSession,
+} from "../services/auth/session.js";
 import { withRetry } from "../utils/retry.js";
 
 /**
@@ -238,20 +243,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     const user = await withRetry(() =>
       prisma.user.findUnique({
         where: { email },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          password: true,
-          userID: true,
-          university: true,
-          role: true,
-          approvalStatus: true,
-          // CC-60: presence decides whether a second factor is required.
-          faceDescriptorEnc: true,
-          // CC-64: an erased account must not be reachable.
-          erasedAt: true,
-        },
+        // SESSION_USER_SELECT carries what decides the second factor (face
+        // template, TOTP) and erasure (CC-64).
+        select: { ...SESSION_USER_SELECT, password: true },
       }),
     );
 
@@ -290,93 +284,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // CC-60: face is the SECOND factor. A user who has enrolled one gets a
-    // challenge instead of a session - no token is issued on this response.
-    //
-    // The gate is the enrolled template, not a separate preference flag:
-    // enrolling IS opting in, and a second factor that can be skipped is not
-    // one. DELETE /api/auth/face-descriptor is the way back out.
-    if (FACE_LOGIN_ENABLED && user.faceDescriptorEnc) {
-      const challenge = await issueFaceChallenge(user.id);
-
-      res.json({
-        requiresFace: true,
-        challengeId: challenge.challengeId,
-        nonce: challenge.nonce,
-        expiresInSeconds: challenge.expiresInSeconds,
-      });
-      return;
-    }
-
-    // Update user status to active with retry
-    await withRetry(() =>
-      prisma.user.update({
-        where: { id: user.id },
-        data: { isActive: true },
-        select: {
-          id: true,
-        },
-      }),
-    );
-
-    // Update last login for admin (only if profile exists)
-    if (user.role === Role.ADMIN || user.role === Role.SUPER_ADMIN) {
-      const adminProfile = await withRetry(() =>
-        prisma.adminProfile.findUnique({
-          where: { userId: user.id },
-          select: {
-            id: true,
-          },
-        }),
-      );
-
-      if (adminProfile) {
-        await withRetry(() =>
-          prisma.adminProfile.update({
-            where: { userId: user.id },
-            data: { lastLoginAt: new Date() },
-            select: {
-              id: true,
-            },
-          }),
-        );
-      }
-    }
-
-    // Generate JWT token
-    const token = jwt.sign(
-      {
-        id: user.id,
-        role: user.role,
-        userID: user.userID,
-        university: user.university,
-      },
-      JWT_SECRET,
-      { expiresIn: ACCESS_TOKEN_TTL_SECONDS },
-    );
-
-    // CC-01b: the access token is short-lived and cannot be revoked; this is
-    // the revocable half of the session.
-    const issuedRefresh = await issueRefreshToken(
-      user.id,
-      req.headers["user-agent"],
-    );
-
-    res.json({
-      message: "Login successful",
-      token,
-      refreshToken: issuedRefresh.token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        userID: user.userID,
-        university: user.university,
-        role: user.role,
-        approvalStatus: user.approvalStatus,
-        isActive: true,
-      },
-    });
+    // CC-60 / CC-62: a session, or a challenge for the second factor. No
+    // token is issued on this response while a second factor is owed.
+    res.json(await afterFirstFactor(req, user));
   } catch (error) {
     console.error("Login error:", error);
 
@@ -610,44 +520,7 @@ export const faceVerify = async (req: Request, res: Response): Promise<void> => 
 
     await consumeFaceChallenge(challengeId);
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { isActive: true },
-      select: { id: true },
-    });
-
-    const token = jwt.sign(
-      {
-        id: user.id,
-        role: user.role,
-        userID: user.userID,
-        university: user.university,
-      },
-      JWT_SECRET,
-      { expiresIn: ACCESS_TOKEN_TTL_SECONDS },
-    );
-
-    // CC-01b: a full session gets the revocable half too.
-    const issuedRefresh = await issueRefreshToken(
-      user.id,
-      req.headers["user-agent"],
-    );
-
-    res.json({
-      message: "Login successful",
-      token,
-      refreshToken: issuedRefresh.token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        userID: user.userID,
-        university: user.university,
-        role: user.role,
-        approvalStatus: user.approvalStatus,
-        isActive: true,
-      },
-    });
+    res.json(await issueSession(req, { ...user, totpEnabledAt: null, erasedAt: null }));
   } catch (error) {
     console.error("Face verify error:", error);
     res.status(500).json({ error: "Internal server error" });

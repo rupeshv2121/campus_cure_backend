@@ -36,6 +36,12 @@ export const AuditAction = {
   // CC-26: a read, but of one person's performance record. Overview reads
   // are not logged; opening an individual is.
   FACULTY_STATS_VIEW: "faculty.stats_view",
+  // CC-62. Enabling and disabling are the user's own acts, but a second
+  // factor quietly turned off is exactly what an account takeover looks like.
+  MFA_ENABLE: "mfa.enable",
+  MFA_DISABLE: "mfa.disable",
+  MFA_RECOVERY_USED: "mfa.recovery_used",
+  MFA_RESET: "mfa.reset",
 } as const;
 
 export type AuditActionValue =
