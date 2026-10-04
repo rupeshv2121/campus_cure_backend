@@ -28,9 +28,13 @@ vi.mock("../../config/database.js", () => db);
 vi.mock("./../../services/email/resend.js", () => provider);
 vi.mock("../../config/env.js", () => ({
   EMAIL_ENABLED: false,
+  // CC-41: channels are gated individually now; these tests are about email.
+  TELEGRAM_ENABLED: false,
+  PUSH_ENABLED: false,
   EMAIL_MAX_ATTEMPTS: 5,
   EMAIL_DRAIN_BATCH_SIZE: 20,
 }));
+vi.mock("../../services/notify/push.js", () => ({ sendPush: vi.fn() }));
 
 import {
   enqueueEmail,

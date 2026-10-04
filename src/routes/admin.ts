@@ -30,12 +30,21 @@ import {
   updateUserApprovalStatus,
 } from "../controllers/adminController.js";
 import { authenticate, authorize } from "../middleware/auth.js";
+import { adminResetTwoFactor } from "../controllers/mfaController.js";
 import {
   getFacultyStatsForUser,
   getFacultyStatsOverview,
 } from "../controllers/facultyStatsController.js";
 
 const router = Router();
+
+// CC-62: lockout recovery. SUPER_ADMIN only - see the handler.
+router.post(
+  "/users/:userId/2fa/reset",
+  authenticate,
+  authorize(Role.SUPER_ADMIN),
+  adminResetTwoFactor,
+);
 
 // CC-26: faculty performance statistics. Admin oversight only - there is no
 // route that shows a named faculty member's numbers to anyone else.

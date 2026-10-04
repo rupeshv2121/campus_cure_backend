@@ -43,6 +43,31 @@ export const authLimiter = rateLimit({
 });
 
 /**
+ * CC-63: requesting an email sign-in code.
+ *
+ * Counts EVERY request, unlike authLimiter. The endpoint always answers 200
+ * (so it cannot enumerate accounts), which means skipSuccessfulRequests would
+ * never count anything - and an unlimited "send a code to this address" is a
+ * way to flood a stranger's inbox using our domain's reputation.
+ */
+export const emailLoginRequestLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 3,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => {
+    const email =
+      typeof req.body?.email === "string"
+        ? req.body.email.trim().toLowerCase()
+        : "";
+    return `${ipKey(req)}:${email}`;
+  },
+  message: {
+    error: "Too many code requests. Please wait 15 minutes and try again.",
+  },
+});
+
+/**
  * Face login. Keyed by IP alone — the request carries a biometric descriptor
  * rather than a claimed identity, so there is no account to key on. Tighter
  * than `authLimiter` because the endpoint searches every enrolled user and is

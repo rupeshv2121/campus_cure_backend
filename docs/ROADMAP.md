@@ -14,7 +14,7 @@ never reused. Effort is in ideal working days for one developer.
 | Frontend | React 18 + Vite + shadcn/Radix + antd + TanStack Query, ~10.4k lines |
 | Deploy | Vercel serverless (`campus_cure_backend/api/index.ts`) |
 | Shipped | 4 roles, doubts/answers/upvotes/moderation, complaints w/ escalation + feedback, in-app notifications, face login |
-| Missing | observability (CC-05), staff directory (CC-27), web push, TOTP, PWA, i18n |
+| Missing (as of 2026-10-04) | Hindi beyond the complaint journey (CC-71), service extraction (CC-72 stage 2); see the spec index for what needs keys or a manual check |
 
 ## Architecture decisions
 
@@ -333,6 +333,20 @@ they conflict, and resolving it after both have applied locally is genuinely pai
 
 ---
 
+## Remaining (as of 2026-10-04)
+
+Every feature in the phases above has been built. What is left:
+
+| Item | Kind | Notes |
+|---|---|---|
+| CC-71 Hindi for the remaining screens | Build | Doubt community, dashboards, profile, admin. Same mechanical pass as the complaint screens |
+| CC-71 Hindi for server-generated text | Build | Notification, email, push and error text is written in English by the backend; needs a stored language per user |
+| CC-72 stage 2: logic into services | Refactor | Start with complaint assignment and the doubt listing query |
+| Email to every user (CC-40, CC-63) | Needs a domain | Without one, Resend only delivers to the account owner. See [MANUAL-CHECKLIST.md](MANUAL-CHECKLIST.md) §2 |
+| Error tracking (CC-05) | Needs Sentry DSNs | Built and dormant |
+| Telegram (CC-42) | Needs a bot token | Built and dormant |
+| Real-device checks | Manual | [MANUAL-CHECKLIST.md](MANUAL-CHECKLIST.md) §5 |
+
 ## Spec index
 
 | ID | Spec | Status |
@@ -364,6 +378,12 @@ they conflict, and resolving it after both have applied locally is genuinely pai
 | CC-30 | [Complaint photo evidence](specs/CC-30-complaint-evidence.md) | **Implemented** 2026-09-23 — before/after evidence, EXIF stripped client-side; one manual check outstanding |
 | CC-27 | [Staff directory](specs/CC-27-staff-directory.md) | **Implemented** 2026-09-23 — non-teaching staff are routable, opt-in directory; migration applied (verified 2026-10-02) |
 | CC-26 | [Faculty performance stats](specs/CC-26-faculty-stats.md) | **Implemented** 2026-10-02 — private to self + admin; verified live |
+| CC-62 | [Two-step verification (TOTP)](specs/CC-62-totp-2fa.md) | **Implemented** 2026-10-04 — migration applied; verified live; needs `MFA_ENCRYPTION_KEY` in Vercel |
+| CC-63 | [Email sign-in codes](specs/CC-63-email-otp.md) | **Implemented** 2026-10-04 — dormant until a domain is verified and `EMAIL_REDIRECT_TO` cleared |
+| CC-41 | [Browser push notifications](specs/CC-41-web-push.md) | **Implemented** 2026-10-04 — migration applied; server path verified live; needs VAPID keys in Vercel |
+| CC-70 | [Installable app + offline reading](specs/CC-70-pwa.md) | **Implemented** 2026-10-04 — build verified; device check outstanding |
+| CC-71 | [Hindi (i18n)](specs/CC-71-i18n.md) | **Implemented** 2026-10-04 — complaint journey in Hindi; other screens still English |
+| CC-72 | [Controller split](specs/CC-72-controller-split.md) | **Stage 1 done** 2026-10-04 — split by area, behaviour unchanged; service extraction not started |
 | CC-20 | [Doubt tags](specs/CC-20-tags.md) | **Shipped** 2026-09-21 — migration applied |
 | CC-21 | [Doubt bookmarks](specs/CC-21-bookmarks.md) | **Shipped** 2026-09-21 — migration applied |
 | CC-22 | [Code syntax highlighting](specs/CC-22-code-highlighting.md) | **Shipped** 2026-09-21 |

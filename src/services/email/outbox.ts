@@ -18,7 +18,10 @@ import {
   EMAIL_DRAIN_BATCH_SIZE,
   EMAIL_ENABLED,
   EMAIL_MAX_ATTEMPTS,
+  PUSH_ENABLED,
+  TELEGRAM_ENABLED,
 } from "../../config/env.js";
+import { sendPush } from "../notify/push.js";
 import { PermanentEmailError, sendEmail } from "./resend.js";
 import {
   clearDeadChat,
@@ -69,18 +72,29 @@ export interface EnqueueResult {
  * notification failing to send must not roll back the complaint that caused
  * it — the caller decides whether it cares, and mostly it should not.
  */
+/**
+ * Which channels can actually deliver. Gated per channel: before CC-41 the
+ * whole outbox switched off without a Resend key, which silently disabled
+ * Telegram too, though it never touches email.
+ */
+export const enabledChannels = (): MessageChannel[] => [
+  ...(EMAIL_ENABLED ? [MessageChannel.EMAIL] : []),
+  ...(TELEGRAM_ENABLED ? [MessageChannel.TELEGRAM] : []),
+  ...(PUSH_ENABLED ? [MessageChannel.PUSH] : []),
+];
+
 export const enqueueEmail = async (
   input: EnqueueInput,
 ): Promise<EnqueueResult> => {
-  if (!EMAIL_ENABLED) {
+  const channel = input.channel ?? MessageChannel.EMAIL;
+
+  if (!enabledChannels().includes(channel)) {
     // No table access at all: the migration may not be applied everywhere.
     console.warn(
-      `[CC-03] email disabled, not queuing "${input.subject}" for ${input.to}`,
+      `[CC-03] ${channel} disabled, not queuing "${input.subject}"`,
     );
     return { queued: false, reason: "disabled" };
   }
-
-  const channel = input.channel ?? MessageChannel.EMAIL;
 
   // A Telegram chat id is a number, not an address, so the email shape check
   // applies to the email channel only.
@@ -94,7 +108,7 @@ export const enqueueEmail = async (
     return { queued: false, reason: "invalid-recipient" };
   }
 
-  if (channel === MessageChannel.TELEGRAM && !to) {
+  if (channel !== MessageChannel.EMAIL && !to) {
     return { queued: false, reason: "invalid-recipient" };
   }
 
@@ -160,10 +174,17 @@ const backoffFor = (attempts: number): Date => {
 export const runEmailDrain = async (): Promise<DrainResult> => {
   const result: DrainResult = { attempted: 0, sent: 0, retrying: 0, failed: 0 };
 
-  if (!EMAIL_ENABLED) return result;
+  const channels = enabledChannels();
+  if (channels.length === 0) return result;
 
   const due = await prisma.emailOutbox.findMany({
-    where: { status: EmailStatus.PENDING, scheduledAt: { lte: new Date() } },
+    where: {
+      status: EmailStatus.PENDING,
+      scheduledAt: { lte: new Date() },
+      // A channel without credentials is left PENDING, not burned through its
+      // attempts: it will go out once the key is set.
+      channel: { in: channels },
+    },
     orderBy: { scheduledAt: "asc" },
     take: EMAIL_DRAIN_BATCH_SIZE,
   });
@@ -174,6 +195,8 @@ export const runEmailDrain = async (): Promise<DrainResult> => {
     try {
       // CC-42: one queue, two providers. Everything around this line -
       // backoff, the attempt cap, permanent-vs-transient, dedupe - is shared.
+      // CC-41: and a third. For PUSH, `to` is a subscription id and the
+      // body is the JSON payload the service worker shows.
       const { providerId } =
         row.channel === MessageChannel.TELEGRAM
           ? await sendTelegram({
@@ -182,12 +205,14 @@ export const runEmailDrain = async (): Promise<DrainResult> => {
 
 ${row.bodyText}`,
             })
-          : await sendEmail({
-              to: row.to,
-              subject: row.subject,
-              text: row.bodyText,
-              html: row.bodyHtml ?? undefined,
-            });
+          : row.channel === MessageChannel.PUSH
+            ? await sendPush(row.to, row.bodyText)
+            : await sendEmail({
+                to: row.to,
+                subject: row.subject,
+                text: row.bodyText,
+                html: row.bodyHtml ?? undefined,
+              });
 
       await prisma.emailOutbox.update({
         where: { id: row.id },
@@ -249,7 +274,7 @@ ${row.bodyText}`,
  * within a second; the cron is the floor, not the mechanism.
  */
 export const triggerEmailDrainInBackground = (): void => {
-  if (!EMAIL_ENABLED) return;
+  if (enabledChannels().length === 0) return;
 
   void runEmailDrain().catch((error) => {
     console.error("[CC-03] background drain failed:", (error as Error).message);

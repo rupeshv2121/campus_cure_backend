@@ -10,7 +10,22 @@ import {
   saveFaceDescriptor,
 } from "../controllers/authController.js";
 import { authenticate } from "../middleware/auth.js";
-import { authLimiter, faceLoginLimiter } from "../middleware/rateLimit.js";
+import {
+  authLimiter,
+  emailLoginRequestLimiter,
+  faceLoginLimiter,
+} from "../middleware/rateLimit.js";
+import {
+  disableTwoFactor,
+  enableTwoFactor,
+  getLoginMethods,
+  getTwoFactorStatus,
+  regenerateRecoveryCodes,
+  requestEmailLogin,
+  setupTwoFactor,
+  verifyEmailLogin,
+  verifyTwoFactorLogin,
+} from "../controllers/mfaController.js";
 
 const router = Router();
 
@@ -49,5 +64,20 @@ router.post("/face/verify", faceLoginLimiter, faceVerify);
 // 6b. Un-enrol. The escape hatch for a user who can no longer present the
 // face they enrolled - see the spec's lockout section.
 router.delete("/face-descriptor", authenticate, deleteFaceDescriptor);
+
+// CC-62: two-factor authentication. Management needs a session; the login
+// step does not (it is the second half of getting one), so it is rate-limited
+// on top of the per-challenge attempt cap.
+router.get("/2fa", authenticate, getTwoFactorStatus);
+router.post("/2fa/setup", authenticate, setupTwoFactor);
+router.post("/2fa/enable", authenticate, enableTwoFactor);
+router.post("/2fa/disable", authenticate, authLimiter, disableTwoFactor);
+router.post("/2fa/recovery-codes", authenticate, regenerateRecoveryCodes);
+router.post("/2fa/verify", authLimiter, verifyTwoFactorLogin);
+
+// CC-63: sign in with a code sent by email instead of a password.
+router.get("/methods", getLoginMethods);
+router.post("/email-login/request", emailLoginRequestLimiter, requestEmailLogin);
+router.post("/email-login/verify", authLimiter, verifyEmailLogin);
 
 export default router;

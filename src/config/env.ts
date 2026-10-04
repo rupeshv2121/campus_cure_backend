@@ -446,6 +446,34 @@ export const TELEGRAM_WEBHOOK_SECRET =
 
 export const TELEGRAM_ENABLED = Boolean(TELEGRAM_BOT_TOKEN);
 
+/* --- Web push (CC-41). --- */
+
+/**
+ * VAPID keys identify this server to the browsers' push services. Generate a
+ * pair once with `npx web-push generate-vapid-keys` and never rotate casually:
+ * a new pair orphans every existing subscription, because each browser
+ * subscribed against the old public key.
+ *
+ * The PUBLIC key is public by design - the frontend needs it to subscribe.
+ */
+export const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY?.trim() || undefined;
+export const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY?.trim() || undefined;
+
+/**
+ * Contact for the push services if this server misbehaves: a mailto: or an
+ * https: URL. Sent with every push, so a site URL is preferable to a person's
+ * address.
+ */
+export const VAPID_SUBJECT =
+  process.env.VAPID_SUBJECT?.trim() || "https://campus-cure-frontend.vercel.app";
+
+export const PUSH_ENABLED = Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+
+/** Devices one user may register. Bounds the fan-out per notification. */
+export const PUSH_MAX_SUBSCRIPTIONS_PER_USER = Number(
+  process.env.PUSH_MAX_SUBSCRIPTIONS_PER_USER ?? 10,
+);
+
 export const TELEGRAM_LINK_TTL_MINUTES = Number(
   process.env.TELEGRAM_LINK_TTL_MINUTES ?? 15,
 );
@@ -613,6 +641,56 @@ export const FACE_CHALLENGE_TTL_SECONDS = Number(
 
 /** Verifies allowed per challenge before it is dead. */
 export const FACE_MAX_ATTEMPTS = Number(process.env.FACE_MAX_ATTEMPTS ?? 3);
+
+/* --- Two-factor authentication (CC-62) and email login codes (CC-63). --- */
+
+/**
+ * Key for TOTP secrets at rest (AES-256-GCM) and for keying email-code hashes.
+ *
+ * Separate from FACE_ENCRYPTION_KEY: rotating one must not invalidate the
+ * other, and a leak of one should not unlock both. Absent => 2FA and email
+ * codes are off, and the routes answer 503. Generate:
+ *   openssl rand -base64 32
+ */
+export const MFA_ENCRYPTION_KEY =
+  process.env.MFA_ENCRYPTION_KEY?.trim() || undefined;
+
+export const TOTP_ENABLED = Boolean(MFA_ENCRYPTION_KEY);
+
+/** Shown as the account's heading in the authenticator app. */
+export const TOTP_ISSUER = process.env.TOTP_ISSUER?.trim() || "CampusCure";
+
+/** How long a half-finished login waits for the TOTP code. */
+export const MFA_CHALLENGE_TTL_SECONDS = Number(
+  process.env.MFA_CHALLENGE_TTL_SECONDS ?? 300,
+);
+
+/**
+ * Wrong codes allowed per challenge. A six-digit code with a +-1 step window
+ * has three valid values in a million; five tries is a 1-in-67,000 guess.
+ */
+export const MFA_MAX_ATTEMPTS = Number(process.env.MFA_MAX_ATTEMPTS ?? 5);
+
+/**
+ * Email login codes (CC-63).
+ *
+ * OFF WHILE EMAIL_REDIRECT_TO IS SET, and that is a security rule, not a
+ * convenience. The redirect sends every email to one inbox - so with it on,
+ * that inbox would receive every user's login code and could sign in as
+ * anyone.
+ */
+export const EMAIL_LOGIN_ENABLED =
+  process.env.EMAIL_LOGIN_ENABLED?.trim().toLowerCase() === "false"
+    ? false
+    : Boolean(EMAIL_ENABLED && !EMAIL_REDIRECT_TO && MFA_ENCRYPTION_KEY);
+
+export const EMAIL_LOGIN_TTL_SECONDS = Number(
+  process.env.EMAIL_LOGIN_TTL_SECONDS ?? 600,
+);
+
+export const EMAIL_LOGIN_MAX_ATTEMPTS = Number(
+  process.env.EMAIL_LOGIN_MAX_ATTEMPTS ?? 5,
+);
 
 /** Samples the client must submit, from separate moments. */
 export const FACE_REQUIRED_SAMPLES = Number(

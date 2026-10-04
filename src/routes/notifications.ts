@@ -1,5 +1,11 @@
 import express from "express";
 import { authenticate } from "../middleware/auth.js";
+import { PUSH_ENABLED, VAPID_PUBLIC_KEY } from "../config/env.js";
+import {
+  PushError,
+  removeSubscription,
+  saveSubscription,
+} from "../services/notify/push.js";
 import type { AuthRequest } from "../types/index.js";
 import {
   getUnreadNotificationCount,
@@ -82,6 +88,41 @@ router.post("/unsubscribe/:token", async (req, res) => {
 });
 
 // Get user notifications
+// CC-41: web push. The public key is not a secret - browsers need it to
+// subscribe - but it is served behind authentication anyway, because only a
+// signed-in user has anything to subscribe to.
+router.get("/push/config", authenticate, (_req, res) => {
+  res.json({ enabled: PUSH_ENABLED, publicKey: PUSH_ENABLED ? VAPID_PUBLIC_KEY : null });
+});
+
+router.post("/push/subscribe", authenticate, async (req: AuthRequest, res) => {
+  try {
+    await saveSubscription(
+      req.user!.id,
+      req.body?.subscription,
+      req.headers["user-agent"],
+    );
+    res.status(201).json({ subscribed: true });
+  } catch (error) {
+    if (error instanceof PushError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+    console.error("[CC-41] subscribe failed:", error);
+    res.status(500).json({ error: "Could not turn on notifications." });
+  }
+});
+
+router.post("/push/unsubscribe", authenticate, async (req: AuthRequest, res) => {
+  try {
+    const removed = await removeSubscription(req.user!.id, req.body?.endpoint);
+    res.json({ removed });
+  } catch (error) {
+    console.error("[CC-41] unsubscribe failed:", error);
+    res.status(500).json({ error: "Could not turn off notifications." });
+  }
+});
+
 router.get("/", authenticate, async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
