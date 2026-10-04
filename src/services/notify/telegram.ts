@@ -9,8 +9,10 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
+import { MessageChannel } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import {
+  FRONTEND_URL,
   TELEGRAM_BOT_TOKEN,
   TELEGRAM_BOT_USERNAME,
   TELEGRAM_ENABLED,
@@ -231,4 +233,61 @@ export const parseStartCommand = (
   if (!match) return null;
 
   return { chatId: String(chatId), code: match[1] as string };
+};
+
+/** What the profile page needs to draw the Telegram card. */
+export const getTelegramStatus = async (userId: string) => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { telegramChatId: true },
+  });
+  return {
+    enabled: TELEGRAM_ENABLED,
+    linked: Boolean(user?.telegramChatId),
+    botUsername: TELEGRAM_ENABLED ? (TELEGRAM_BOT_USERNAME ?? null) : null,
+  };
+};
+
+/**
+ * Queue a notification for the user's linked Telegram chat. NEVER THROWS.
+ *
+ * Its own fan-out, not a branch of the email one. It used to be queued inside
+ * queueNotificationEmail, so turning email off - or a user unsubscribing from
+ * email - silently stopped Telegram too, although linking a chat is a
+ * separate, explicit choice.
+ */
+export const queueNotificationTelegram = async (input: {
+  notificationId: string;
+  userId: string;
+  title: string;
+  message: string;
+}): Promise<boolean> => {
+  if (!TELEGRAM_ENABLED) return false;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: input.userId },
+      select: { telegramChatId: true },
+    });
+    if (!user?.telegramChatId) return false;
+
+    const link = FRONTEND_URL
+      ? `\n\nOpen in CampusCure: ${FRONTEND_URL.replace(/\/$/, "")}/notifications/${input.notificationId}`
+      : "";
+
+    // Lazy: the outbox imports this module for sendTelegram.
+    const { enqueueEmail } = await import("../email/outbox.js");
+    const result = await enqueueEmail({
+      channel: MessageChannel.TELEGRAM,
+      to: user.telegramChatId,
+      subject: input.title.slice(0, 200),
+      text: `${input.message}${link}`,
+      // Same key the email path used, so a retried handler still sends once.
+      dedupeKey: `notification:${input.notificationId}:telegram`,
+    });
+    return result.queued;
+  } catch (error) {
+    console.error("[CC-42] could not queue Telegram message:", (error as Error).message);
+    return false;
+  }
 };

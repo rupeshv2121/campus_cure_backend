@@ -8,7 +8,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { MessageChannel, NotificationType } from "@prisma/client";
+import { NotificationType } from "@prisma/client";
 import { prisma } from "../../config/database.js";
 import { NOTIFICATION_EMAILS_ENABLED } from "../../config/env.js";
 import { enqueueEmail, triggerEmailDrainInBackground } from "./outbox.js";
@@ -107,7 +107,6 @@ export const queueNotificationEmail = async (
         email: true,
         name: true,
         emailNotifications: true,
-        telegramChatId: true,
       },
     });
 
@@ -137,18 +136,8 @@ export const queueNotificationEmail = async (
       dedupeKey: `notification:${request.notificationId}`,
     });
 
-    // CC-42: the same message on every channel the user has linked. Queued
-    // separately so one provider being down cannot stop the other, and given
-    // a distinct dedupe key so the two do not collide on the unique index.
-    if (user.telegramChatId) {
-      await enqueueEmail({
-        channel: MessageChannel.TELEGRAM,
-        to: user.telegramChatId,
-        subject: rendered.subject,
-        text: rendered.text,
-        dedupeKey: `notification:${request.notificationId}:telegram`,
-      });
-    }
+    // CC-42 Telegram is queued by queueNotificationTelegram, independently of
+    // email: an email opt-out must not silence a chat the user linked.
 
     if (!result.queued) {
       return { sent: false, reason: result.reason ?? "not-queued" };

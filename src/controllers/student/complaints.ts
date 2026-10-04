@@ -1,38 +1,28 @@
 /**
  * Student complaints: raising, intake parsing, duplicates, tracking, and confirming or rejecting a resolution.
  *
- * Split out of studentController.ts by CC-72; the handlers are unchanged.
+ * Split out of studentController.ts by CC-72. Stage 2 moved the business rules for the
+ * thin handlers here into services/ (complaints/ or doubts/); they now only
+ * translate HTTP in and errors out.
  * See docs/specs/CC-72-controller-split.md.
  */
 
-import {
-  AttachmentEntity,
-  Prisma,
-  Role
-} from "@prisma/client";
 import type { Response } from "express";
 import { prisma } from "../../config/database.js";
+import { fileComplaint } from "../../services/complaints/filing.js";
 import {
-  requestEmbedding,
-  triggerDrainInBackground,
-} from "../../services/ai/embeddingWorker.js";
+  confirmResolution,
+  rejectResolution,
+  submitFeedback,
+} from "../../services/complaints/lifecycle.js";
 import {
   MIN_TEXT_LENGTH,
   parseComplaintText,
 } from "../../services/intake/parseComplaint.js";
 import { findDuplicateComplaints } from "../../services/search/duplicateComplaints.js";
-import { initialSlaDueAt } from "../../services/sla/policy.js";
-import {
-  AttachmentError,
-  confirmAttachments
-} from "../../services/storage/attachments.js";
 import { withEvidence } from "../../services/storage/resolutionEvidence.js";
-import type { AuthRequest, RejectionHistoryEntry } from "../../types/index.js";
-import {
-  createNotification,
-  notifyComplaintStatusChange,
-} from "../../utils/notifications.js";
-import { getPostingSettings } from "./shared.js";
+import type { AuthRequest } from "../../types/index.js";
+import { answerComplaintError } from "../complaintErrors.js";
 
 // 8. Raise Complaint
 export const raiseComplaint = async (
@@ -40,105 +30,17 @@ export const raiseComplaint = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const {
-      title,
-      description,
-      category,
-      priority,
-      classroomNumber,
-      block,
-      attachmentIds,
-    } = req.body;
-
-    if (
-      !title ||
-      !description ||
-      !category ||
-      !priority ||
-      !classroomNumber ||
-      !block
-    ) {
-      res.status(400).json({ error: "All fields are required" });
-      return;
-    }
-
-    const { allowedCategories } = await getPostingSettings();
-    if (!allowedCategories.includes(String(category))) {
-      res.status(400).json({
-        error: "Selected complaint category is not allowed",
-      });
-      return;
-    }
-
-    console.log("Raising complaint with data:", {
-      title,
-      description,
-      category,
-      priority,
-      classroomNumber,
-      block,
-    });
-
-    // Create complaint and update student profile counters in a transaction.
-    //
-    // CC-02: interactive rather than the array form, because confirming
-    // attachments needs the complaint's id and must commit with it. A complaint
-    // that fails to write must not leave files claiming to belong to it.
-    const complaint = await prisma.$transaction(async (tx) => {
-      const created = await tx.complaint.create({
-        data: {
-          title,
-          description,
-          category,
-          priority,
-          classroomNumber,
-          block,
-          // CC-31: the clock starts the moment it is filed. Assignment budget,
-          // because until someone assigns it an admin is the one holding it.
-          slaDueAt: initialSlaDueAt(Number(priority)),
-          raisedBy: { connect: { id: req.user!.id } },
-        },
-      });
-
-      await tx.studentProfile.update({
-        where: { userId: req.user!.id },
-        data: {
-          totalComplaints: { increment: 1 },
-          totalActiveComplaints: { increment: 1 },
-        },
-      });
-
-      if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
-        await confirmAttachments({
-          attachmentIds,
-          entityType: AttachmentEntity.COMPLAINT,
-          entityId: created.id,
-          userId: req.user!.id,
-          tx,
-        });
-      }
-
-      return created;
-    });
-
-    // CC-13: queue for embedding so this complaint can be matched against
-    // future reports. Never inline - an AI outage must not block filing.
-    await requestEmbedding("complaint", complaint.id);
-    triggerDrainInBackground();
+    // CC-72: the rules live in services/complaints/filing.ts.
+    const complaint = await fileComplaint(req.user!.id, req.body ?? {});
 
     res.status(201).json({
       message: "Complaint raised successfully - will be manually assigned",
       complaint,
     });
   } catch (error) {
-    // CC-02: a rejected attachment is the student's problem to fix (wrong file,
-    // upload never finished), not a server fault. The transaction has already
-    // rolled back, so no complaint was filed.
-    if (error instanceof AttachmentError) {
-      res.status(error.status).json({ error: error.message });
-      return;
-    }
-
+    // A rejected photo is the student's to fix (wrong file, upload never
+    // finished); the transaction rolled back, so nothing was filed.
+    if (answerComplaintError(res, error)) return;
     console.error("Error raising complaint:", error);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -301,93 +203,12 @@ export const confirmComplaintResolution = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const complaintId = req.params.complaintId as string;
-
-    console.log("Confirming resolution for complaint:", complaintId);
-
-    if (!complaintId) {
-      res.status(400).json({ error: "Complaint ID is required" });
-      return;
-    }
-
-    // Verify complaint exists and belongs to the student
-    const complaint = await prisma.complaint.findUnique({
-      where: { id: complaintId },
-      include: { assignedTo: true },
-    });
-
-    if (!complaint) {
-      res.status(404).json({ error: "Complaint not found" });
-      return;
-    }
-
-    if (complaint.raisedById !== req.user!.id) {
-      res
-        .status(403)
-        .json({ error: "You can only confirm your own complaints" });
-      return;
-    }
-
-    if (complaint.status !== "PENDING_CONFIRMATION") {
-      res.status(400).json({
-        error: "Complaint is not pending your approval",
-      });
-      return;
-    }
-
-    // Update complaint to RESOLVED and mark as confirmed
-    const updatedComplaint = await prisma.complaint.update({
-      where: { id: complaintId },
-      data: {
-        status: "RESOLVED",
-        studentConfirmed: true,
-        studentConfirmationDate: new Date(),
-        handledBySuperAdmin: false, // Reset superadmin handling flag
-      },
-    });
-
-    console.log("Complaint confirmed successfully:", updatedComplaint.id);
-
-    // Send notification to the assigned faculty and admin
-    try {
-      if (complaint.assignedTo) {
-        await notifyComplaintStatusChange(
-          complaint.assignedToId!,
-          complaint.title,
-          complaint.status,
-          "RESOLVED",
-          complaintId,
-        );
-        console.log("Confirmation notification sent to faculty");
-      }
-
-      // Notify admin that complaint is resolved
-      const admins = await prisma.user.findMany({
-        where: {
-          role: { in: [Role.ADMIN, Role.SUPER_ADMIN] },
-          isActive: true,
-        },
-        select: { id: true },
-      });
-
-      for (const admin of admins) {
-        await notifyComplaintStatusChange(
-          admin.id,
-          complaint.title,
-          complaint.status,
-          "RESOLVED",
-          complaintId,
-        );
-      }
-    } catch (notificationError) {
-      console.error("Notification error (non-blocking):", notificationError);
-      // Don't fail the request if notifications fail
-    }
-
-    console.log("Sending confirmation success response");
+    // CC-72: the rules live in services/complaints/lifecycle.ts.
+    await confirmResolution(req.params.complaintId as string, req.user!.id);
     res.json({ message: "Complaint confirmed as resolved" });
   } catch (error) {
-    console.error("Confirm complaint resolution error:", error);
+    if (answerComplaintError(res, error)) return;
+    console.error("confirmComplaintResolution error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -398,144 +219,16 @@ export const rejectComplaintResolution = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const complaintId = req.params.complaintId as string;
-    const { rejectionReason } = req.body;
-
-    console.log(
-      "Rejecting resolution for complaint:",
-      complaintId,
-      "Reason:",
-      rejectionReason,
+    // CC-72: the rules live in services/complaints/lifecycle.ts.
+    await rejectResolution(
+      req.params.complaintId as string,
+      req.user!.id,
+      req.body?.rejectionReason,
     );
-
-    if (!complaintId) {
-      res.status(400).json({ error: "Complaint ID is required" });
-      return;
-    }
-
-    if (!rejectionReason || rejectionReason.trim() === "") {
-      res.status(400).json({ error: "Rejection reason is required" });
-      return;
-    }
-
-    // Verify complaint exists and belongs to the student
-    const complaint = await prisma.complaint.findUnique({
-      where: { id: complaintId },
-      include: { assignedTo: true, raisedBy: true },
-    });
-
-    if (!complaint) {
-      res.status(404).json({ error: "Complaint not found" });
-      return;
-    }
-
-    if (complaint.raisedById !== req.user!.id) {
-      res
-        .status(403)
-        .json({ error: "You can only reject your own complaints" });
-      return;
-    }
-
-    if (complaint.status !== "PENDING_CONFIRMATION") {
-      res.status(400).json({
-        error: "Complaint is not pending your approval",
-      });
-      return;
-    }
-
-    // Parse existing rejection history
-    let rejectionHistory: RejectionHistoryEntry[] = [];
-    try {
-      rejectionHistory =
-        typeof complaint.rejectionHistory === "string"
-          ? JSON.parse(complaint.rejectionHistory)
-          : Array.isArray(complaint.rejectionHistory)
-            ? complaint.rejectionHistory
-            : [];
-    } catch {
-      rejectionHistory = [];
-    }
-
-    // Add new rejection to history
-    rejectionHistory.push({
-      timestamp: new Date().toISOString(),
-      reason: rejectionReason,
-      studentName: complaint.raisedBy.name,
-    });
-
-    const escalatedStatus = complaint.assignedToId ? "ASSIGNED" : "RAISED";
-
-    // Flag complaint for Super Admin re-review using escalation count.
-    const updatedComplaint = await prisma.complaint.update({
-      where: { id: complaintId },
-      data: {
-        status: escalatedStatus,
-        studentRejectionMessage: rejectionReason,
-        escalationCount: { increment: 1 },
-        rejectionHistory: rejectionHistory as unknown as Prisma.InputJsonValue,
-        resolutionNote: rejectionReason
-          ? `${complaint.resolutionNote || ""}\n\n[${new Date().toLocaleString()}] Student Rejection: ${rejectionReason}`
-          : complaint.resolutionNote,
-      },
-    });
-
-    console.log("Complaint rejected and escalated:", updatedComplaint.id);
-
-    // Send notifications
-    try {
-      // Notify the assigned faculty about rejection
-      if (complaint.assignedTo) {
-        await notifyComplaintStatusChange(
-          complaint.assignedToId!,
-          complaint.title,
-          complaint.status,
-          escalatedStatus,
-          complaintId,
-        );
-        console.log("Notification sent to faculty");
-      }
-
-      // Notify all superadmins about the escalation
-      const superAdmins = await prisma.user.findMany({
-        where: {
-          role: Role.SUPER_ADMIN,
-          isActive: true,
-        },
-        select: { id: true },
-      });
-
-      console.log(`Found ${superAdmins.length} superadmins to notify`);
-
-      for (const superAdmin of superAdmins) {
-        await createNotification({
-          userId: superAdmin.id,
-          type: "COMPLAINT_STATUS_UPDATE",
-          title: "Complaint Rejected by Student - Escalated",
-          message: `Complaint "${complaint.title}" was rejected by student ${complaint.raisedBy.name}. Reason: ${rejectionReason}`,
-          data: {
-            complaintId,
-            oldStatus: complaint.status,
-            newStatus: escalatedStatus,
-            rejectionReason,
-            escalationCount: updatedComplaint.escalationCount,
-            escalatedForSuperAdminReview: true,
-          },
-        });
-      }
-
-      console.log("Escalation notifications sent to superadmins");
-    } catch (notificationError) {
-      console.error("Notification error (non-blocking):", notificationError);
-      // Don't fail the request if notification fails
-    }
-
-    console.log("Sending success response");
-    res.json({
-      message:
-        "Complaint resolution rejected and escalated to Super Admin for review",
-    });
+    res.json({ message: "Complaint resolution rejected and escalated to Super Admin for review" });
   } catch (error) {
-    console.error("Reject complaint resolution error:", error);
+    if (answerComplaintError(res, error)) return;
+    console.error("rejectComplaintResolution error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -546,93 +239,17 @@ export const submitComplaintFeedback = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const complaintId = req.params.complaintId as string;
-    const { feedbackRating, feedbackComment } = req.body as {
-      feedbackRating?: unknown;
-      feedbackComment?: unknown;
-    };
-
-    if (!complaintId) {
-      res.status(400).json({ error: "Complaint ID is required" });
-      return;
-    }
-
-    if (
-      typeof feedbackRating !== "number" ||
-      !Number.isInteger(feedbackRating) ||
-      feedbackRating < 1 ||
-      feedbackRating > 5
-    ) {
-      res
-        .status(400)
-        .json({ error: "Feedback rating must be an integer between 1 and 5" });
-      return;
-    }
-
-    if (
-      feedbackComment !== undefined &&
-      feedbackComment !== null &&
-      typeof feedbackComment !== "string"
-    ) {
-      res.status(400).json({ error: "Feedback comment must be a string" });
-      return;
-    }
-
-    const normalizedFeedbackComment =
-      typeof feedbackComment === "string" ? feedbackComment.trim() : "";
-
-    if (normalizedFeedbackComment.length > 1000) {
-      res.status(400).json({ error: "Feedback comment is too long" });
-      return;
-    }
-
-    const complaint = await prisma.complaint.findUnique({
-      where: { id: complaintId },
-      select: {
-        id: true,
-        raisedById: true,
-        status: true,
-        feedbackRating: true,
-      },
-    });
-
-    if (!complaint) {
-      res.status(404).json({ error: "Complaint not found" });
-      return;
-    }
-
-    if (complaint.raisedById !== req.user!.id) {
-      res.status(403).json({
-        error: "You can only submit feedback for your own complaints",
-      });
-      return;
-    }
-
-    if (complaint.status !== "RESOLVED") {
-      res.status(400).json({
-        error: "Feedback can only be submitted after complaint is resolved",
-      });
-      return;
-    }
-
-    if (complaint.feedbackRating !== null) {
-      res
-        .status(400)
-        .json({ error: "Feedback already submitted for this complaint" });
-      return;
-    }
-
-    await prisma.complaint.update({
-      where: { id: complaintId },
-      data: {
-        feedbackRating,
-        feedbackComment: normalizedFeedbackComment || null,
-      },
-    });
-
+    // CC-72: the rules live in services/complaints/lifecycle.ts.
+    await submitFeedback(
+      req.params.complaintId as string,
+      req.user!.id,
+      req.body?.feedbackRating,
+      req.body?.feedbackComment,
+    );
     res.json({ message: "Feedback submitted successfully" });
   } catch (error) {
-    console.error("Submit complaint feedback error:", error);
+    if (answerComplaintError(res, error)) return;
+    console.error("submitComplaintFeedback error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 };

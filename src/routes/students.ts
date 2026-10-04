@@ -137,10 +137,6 @@ router.get(
   authenticate,
   authorize(Role.STUDENT),
   getSimilarDoubtSuggestions,
-  getDoubtTags,
-  bookmarkDoubt,
-  unbookmarkDoubt,
-  getBookmarkedDoubts,
 );
 
 // 11b. Get SubjectWise doubts analytics

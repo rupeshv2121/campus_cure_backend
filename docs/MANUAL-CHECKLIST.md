@@ -72,10 +72,23 @@ errors still go to the Vercel function logs.
 
 ---
 
-## 4. Telegram — optional
+## 4. Telegram
 
-- [ ] In Telegram, message **@BotFather** → `/newbot` → copy the token into `TELEGRAM_BOT_TOKEN`
-- [ ] Redeploy; link an account from the profile page and send a test notification
+Done locally on 2026-10-04: bot `@campuscure_bot` verified, a webhook secret generated, and the
+webhook **registered with Telegram** at `https://campus-cure-backend.vercel.app/api/telegram/webhook`.
+Until production has the variables below, Telegram's calls to that URL fail and linking cannot
+complete.
+
+- [ ] Add to the backend in Vercel, copied from `.env`: `TELEGRAM_BOT_TOKEN`,
+      `TELEGRAM_BOT_USERNAME`, `TELEGRAM_WEBHOOK_SECRET` (**must match exactly**: Telegram sends it
+      with every call, and a mismatch answers 401)
+- [ ] Redeploy the backend and the frontend
+- [ ] Profile → **Telegram → Connect Telegram → Open Telegram → Start** → the card switches to
+      "Connected" by itself
+- [ ] Trigger a notification (assign a complaint to that user) → it arrives in Telegram with a link
+      back to the app
+- [ ] If the secret ever changes, re-register the webhook (`setWebhook` with the new
+      `secret_token`); see `.env.example`
 
 ---
 
@@ -123,6 +136,12 @@ Automated tests cover the logic; these need a human, a camera or a phone.
 ### Complaint photos (CC-30)
 - [ ] On a phone with location on: raise a complaint with a photo → download it back →
       `exiftool -gps:all photo.jpg` prints nothing
+
+### Answer moderation (fixed 2026-10-04)
+Faculty could not approve or reject student answers in production: the route ran the wrong handler
+(see CC-72). After deploying:
+- [ ] As faculty: a pending student answer → **Approve** → it becomes visible to students
+- [ ] **Reject** an approved answer → the author's reputation drops by the approval points
 
 ### Faculty performance (CC-26)
 - [ ] As admin: **Faculty Performance** → click a row → detail opens

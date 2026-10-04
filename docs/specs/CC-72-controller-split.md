@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Stage 1 done** 2026-10-04: controllers split by area, behaviour unchanged. Stage 2 (logic into services) not started |
+| **Status** | **Stage 1 done** 2026-10-04 (split by area). **Stage 2 done for the write paths** 2026-10-04 (complaints and answer review moved into services) |
 | **Phase** | 7 |
 | **Branch** | `refactor/CC-72-services` |
 | **Repos** | backend |
@@ -56,12 +56,38 @@ Not by hand. A script used the TypeScript compiler API:
   whole directory. To prove it, a probe reference was added to `student/doubts.ts`: the test failed,
   then passed again once the probe was removed.
 
-## Stage 2 (not done)
+## Stage 2: business rules into services
 
-Move business logic out of the handlers into `services/<area>/` so it can be tested without HTTP,
-one area at a time, each with its own tests first. The obvious first candidates are complaint
-assignment (`admin/complaints.ts`), which mixes routing, SLA, history JSON and notifications in one
-handler, and the doubt listing query in `student/doubts.ts`.
+Every handler that **changes state** in the complaint and answer workflows now just reads the request,
+calls a service, and maps `ComplaintError`, `AnswerReviewError` or `AttachmentError` to a response.
+The rules live in services that are tested without HTTP.
+
+| Service | Replaces | Tests |
+|---|---|---|
+| `services/complaints/lifecycle.ts` | Staff and admin status changes (two near-copies with undocumented differences, now one function with the differences named), student confirm/reject, feedback | `complaintLifecycle.test.ts` (20) |
+| `services/complaints/assignment.ts` | Admin assignment and super-admin reassignment of escalated complaints | `complaintAssignment.test.ts` (9) |
+| `services/complaints/filing.ts` | Raising a complaint | `complaintFiling.test.ts` (7) |
+| `services/doubts/answerReview.ts` | Faculty moderation; accepting or un-accepting an answer | `answerReview.test.ts` (9) |
+| `services/settings/posting.ts` | Allowed categories and subjects (was in a controller file, so services could not use it) | via the above |
+
+`controllers/complaintErrors.ts` gives the three complaint controllers one way to report a refusal.
+`admin/complaints.ts` went from 820 to about 400 lines and `faculty/complaints.ts` from 227 to about 100.
+
+**Defects found by the extraction, and fixed:**
+
+| Defect | Effect | Fix |
+|---|---|---|
+| `PUT /faculty/answers/:id/moderate` had five handlers chained, from an import list pasted into the route in CC-12's merge (`649cfe3`) | **Faculty could not moderate answers at all.** The AI-draft approval ran first and refused every request | One handler. New `regression/routeHandlers.test.ts` walks the live router and fails if any route runs more than one controller handler; it was verified to fail on the old routes. Two other routes had the same paste (harmless, since the first handler answered) and were cleaned |
+| Confirm, reject and feedback checked the status, then wrote unconditionally | A double tap could escalate a complaint twice, or record feedback twice | Conditional writes; the loser gets 409 or 400 |
+| Rejecting a previously approved answer kept the approval points | Reputation for a rejected answer | Revoked |
+| Un-accepting an answer, or accepting another, kept the acceptance points | Reputation for an answer no longer accepted | Revoked from the previous author |
+| Moving acceptance to another answer was several separate writes | A failure part-way could leave two answers accepted | One transaction |
+| Priority on a new complaint was not validated | `"high"` or `7` reached the database and came back as a 500 | 400 with a message |
+| Complaint text and student rejection reasons were written to the server log | Personal content in logs | Removed |
+
+**Still inline:** read-only handlers (doubt listing and detail, dashboards, analytics) and profile
+updates. They are queries rather than rules, so moving them buys less; `getDoubtById` (186 lines,
+duplicated for faculty) is the best next candidate.
 
 ## Rollback
 

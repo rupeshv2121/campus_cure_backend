@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Implemented 2026-09-21** — migration applied; needs a bot token |
+| **Status** | **Implemented 2026-09-21**; profile UI and webhook registration 2026-10-04 — live once the Vercel variables are set |
 | **Phase** | 4 |
 | **Branch** | `feat/CC-42-telegram` |
 | **Repos** | backend |
@@ -182,3 +182,19 @@ Queued `TELEGRAM` rows would be orphaned — drain or delete them first.
    without the other.
 2. Should the bot answer anything besides `/start`? A `/status` showing open complaints would be
    useful and is CC-15's territory, not a transport's.
+
+## Update 2026-10-04
+
+- **Profile card** (`TelegramCard.tsx`): Connect opens the deep link, polls `GET /api/me/telegram`
+  until the chat is linked, and offers Disconnect. Before this there was no way in the UI to link
+  at all.
+- **Independent of email.** Telegram was queued inside `queueNotificationEmail`, so an email
+  opt-out, or a missing Resend key, silently stopped it. It now has its own fan-out
+  (`queueNotificationTelegram`), called from `createNotification` beside push. The message is the
+  notification text plus a link to `/notifications/<id>`, not the email body.
+- **Webhook registered** with Telegram for `campus-cure-backend.vercel.app`, `allowed_updates:
+  ["message"]`, with the secret from `.env`.
+- **Verified locally:** status → link code → webhook with a wrong secret refused (401) → correct
+  secret links the account → replayed code does not → unlink. New tests in
+  `telegramFanout.test.ts` (7).
+
