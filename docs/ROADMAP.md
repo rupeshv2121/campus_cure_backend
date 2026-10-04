@@ -341,10 +341,10 @@ Every feature in the phases above has been built. What is left:
 |---|---|---|
 | CC-71 Hindi for the remaining screens | Build | Doubt community, dashboards, profile, admin. Same mechanical pass as the complaint screens |
 | CC-71 Hindi for server-generated text | Build | Notification, email, push and error text is written in English by the backend; needs a stored language per user |
-| CC-72 stage 2: logic into services | Refactor | Start with complaint assignment and the doubt listing query |
+| CC-72: read-only handlers into query services | Refactor (optional) | `getDoubtById` (duplicated for faculty), dashboards, analytics |
 | Email to every user (CC-40, CC-63) | Needs a domain | Without one, Resend only delivers to the account owner. See [MANUAL-CHECKLIST.md](MANUAL-CHECKLIST.md) §2 |
 | Error tracking (CC-05) | Needs Sentry DSNs | Built and dormant |
-| Telegram (CC-42) | Needs a bot token | Built and dormant |
+| Telegram (CC-42) | Needs 3 Vercel variables | Bot and webhook set up; see [MANUAL-CHECKLIST.md](MANUAL-CHECKLIST.md) §4 |
 | Real-device checks | Manual | [MANUAL-CHECKLIST.md](MANUAL-CHECKLIST.md) §5 |
 
 ## Spec index
@@ -383,7 +383,7 @@ Every feature in the phases above has been built. What is left:
 | CC-41 | [Browser push notifications](specs/CC-41-web-push.md) | **Implemented** 2026-10-04 — migration applied; server path verified live; needs VAPID keys in Vercel |
 | CC-70 | [Installable app + offline reading](specs/CC-70-pwa.md) | **Implemented** 2026-10-04 — build verified; device check outstanding |
 | CC-71 | [Hindi (i18n)](specs/CC-71-i18n.md) | **Implemented** 2026-10-04 — complaint journey in Hindi; other screens still English |
-| CC-72 | [Controller split](specs/CC-72-controller-split.md) | **Stage 1 done** 2026-10-04 — split by area, behaviour unchanged; service extraction not started |
+| CC-72 | [Controller split](specs/CC-72-controller-split.md) | **Stages 1 and 2 done** 2026-10-04 — split by area; complaint and answer workflows moved into services; answer moderation route fixed |
 | CC-20 | [Doubt tags](specs/CC-20-tags.md) | **Shipped** 2026-09-21 — migration applied |
 | CC-21 | [Doubt bookmarks](specs/CC-21-bookmarks.md) | **Shipped** 2026-09-21 — migration applied |
 | CC-22 | [Code syntax highlighting](specs/CC-22-code-highlighting.md) | **Shipped** 2026-09-21 |
