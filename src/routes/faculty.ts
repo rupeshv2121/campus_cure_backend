@@ -133,11 +133,10 @@ router.put(
   "/answers/:answerId/moderate",
   authenticate,
   authorize(Role.FACULTY),
-  approveAnswerDraft,
-  getAnswerDraft,
+  // One handler. CC-12's merge (649cfe3) pasted the draft handlers in here
+  // too, and approveAnswerDraft ran first and refused every request - so
+  // answer moderation was broken until CC-72 stage 2 found it.
   moderateAnswer,
-  rejectAnswerDraft,
-  requestAnswerDraft,
 );
 
 // 16. Get faculty's answers

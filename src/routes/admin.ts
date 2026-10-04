@@ -197,7 +197,6 @@ router.get(
   authenticate,
   authorize(Role.ADMIN, Role.SUPER_ADMIN),
   getAllComplaints,
-  getComplaintDuplicateClusters,
 );
 
 // 16. Get Approved Faculty (Admin)

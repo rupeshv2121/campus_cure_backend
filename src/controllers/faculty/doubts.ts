@@ -1,7 +1,9 @@
 /**
  * The doubt community from the faculty side: browsing, answering, moderating and verifying answers.
  *
- * Split out of facultyController.ts by CC-72; the handlers are unchanged.
+ * Split out of facultyController.ts by CC-72. Stage 2 moved the business rules for the
+ * thin handlers here into services/ (complaints/ or doubts/); they now only
+ * translate HTTP in and errors out.
  * See docs/specs/CC-72-controller-split.md.
  */
 
@@ -9,8 +11,7 @@ import {
   ApprovalStatus,
   AttachmentEntity,
   DoubtStatus,
-  Prisma,
-  Role
+  Prisma
 } from "@prisma/client";
 import type { Response } from "express";
 import { prisma } from "../../config/database.js";
@@ -19,9 +20,9 @@ import {
   prepareEdit,
 } from "../../services/content/sanitize.js";
 import {
-  ReputationReason,
-  awardReputation,
-} from "../../services/reputation/reputation.js";
+  AnswerReviewError,
+  moderateAnswer as moderateAnswerService,
+} from "../../services/doubts/answerReview.js";
 import {
   AttachmentError,
   bindPostAttachments,
@@ -188,147 +189,28 @@ export const moderateAnswer = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const answerId = req.params.answerId as string;
-    const { approvalStatus, moderationNote } = req.body as {
-      approvalStatus?: ApprovalStatus;
-      moderationNote?: string;
-    };
+    const { approvalStatus, moderationNote } = req.body ?? {};
 
-    if (
-      !approvalStatus ||
-      (approvalStatus !== ApprovalStatus.APPROVED &&
-        approvalStatus !== ApprovalStatus.REJECTED)
-    ) {
-      res
-        .status(400)
-        .json({ error: "approvalStatus must be APPROVED or REJECTED" });
-      return;
-    }
-
-    const answer = await prisma.answer.findUnique({
-      where: { id: answerId },
-      select: {
-        id: true,
-        moderatedById: true,
-        answeredBy: {
-          select: {
-            role: true,
-          },
-        },
-      },
+    // CC-72: the rules live in services/doubts/answerReview.ts.
+    const answer = await moderateAnswerService({
+      answerId: req.params.answerId as string,
+      decision: approvalStatus,
+      note: moderationNote,
+      moderatorId: req.user!.id,
     });
-
-    if (!answer) {
-      res.status(404).json({ error: "Answer not found" });
-      return;
-    }
-
-    if (answer.answeredBy.role === Role.FACULTY) {
-      res.status(400).json({
-        error: "Faculty answers do not support moderation updates",
-      });
-      return;
-    }
-
-    if (answer.moderatedById && answer.moderatedById !== req.user!.id) {
-      res.status(403).json({
-        error:
-          "Only the faculty who previously moderated this answer can update it",
-      });
-      return;
-    }
-
-    const updatedAnswer = await prisma.answer.update({
-      where: { id: answerId },
-      data: {
-        approvalStatus,
-        moderatedById: req.user!.id,
-        moderatedAt: new Date(),
-        moderationNote: moderationNote?.trim() || null,
-      },
-      include: {
-        doubt: {
-          select: {
-            id: true,
-            title: true,
-            postedById: true,
-          },
-        },
-        answeredBy: {
-          select: {
-            id: true,
-            name: true,
-            userID: true,
-            role: true,
-            facultyProfile: {
-              select: {
-                department: true,
-                subjects: true,
-              },
-            },
-            studentProfile: {
-              select: {
-                semester: true,
-                branch: true,
-              },
-            },
-          },
-        },
-        moderatedBy: {
-          select: {
-            id: true,
-            name: true,
-            userID: true,
-            role: true,
-            facultyProfile: {
-              select: {
-                department: true,
-                subjects: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    // CC-25: small on purpose - passing moderation is a floor, not an
-    // achievement. The points that matter come from other students.
-    if (approvalStatus === ApprovalStatus.APPROVED) {
-      await awardReputation({
-        userId: updatedAnswer.answeredBy.id,
-        reason: ReputationReason.ANSWER_APPROVED,
-        sourceType: "Answer",
-        sourceId: updatedAnswer.id,
-        actorId: req.user!.id,
-      });
-    }
-
-    // Send notification to doubt creator only when answer is approved
-    try {
-      if (
-        approvalStatus === ApprovalStatus.APPROVED &&
-        updatedAnswer.doubt.postedById !== updatedAnswer.answeredBy.id
-      ) {
-        await notifyDoubtAnswer(
-          updatedAnswer.doubt.postedById,
-          updatedAnswer.doubt.title,
-          updatedAnswer.answeredBy.name,
-          updatedAnswer.doubt.id,
-        );
-      }
-    } catch (notificationError) {
-      console.error("Notification error:", notificationError);
-      // Don't fail the request if notifications fail
-    }
 
     res.json({
       message:
-        approvalStatus === ApprovalStatus.APPROVED
+        approvalStatus === "APPROVED"
           ? "Answer approved successfully"
           : "Answer rejected successfully",
-      answer: updatedAnswer,
+      answer,
     });
   } catch (error) {
+    if (error instanceof AnswerReviewError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
     console.error("Error moderating answer:", error);
     res.status(500).json({ error: "Internal server error" });
   }

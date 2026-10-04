@@ -5,9 +5,6 @@
  * See docs/specs/CC-72-controller-split.md.
  */
 
-import {
-  Prisma
-} from "@prisma/client";
 import { prisma } from "../../config/database.js";
 
 export const DEFAULT_DEPARTMENTS = [
@@ -29,27 +26,6 @@ export const DEFAULT_ALLOWED_CATEGORIES = [
 ];
 
 export const DEFAULT_DOUBT_SUBJECTS = ["DSA", "DBMS", "OS", "NETWORKS"];
-
-export const isAssignmentHistoryColumnError = (error: unknown): boolean => {
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    if (error.code !== "P2022") {
-      return false;
-    }
-
-    const column =
-      typeof error.meta === "object" && error.meta && "column" in error.meta
-        ? String((error.meta as { column?: string }).column || "")
-        : "";
-
-    return column.includes("assignmentHistory");
-  }
-
-  if (error instanceof Prisma.PrismaClientValidationError) {
-    return error.message.includes("assignmentHistory");
-  }
-
-  return false;
-};
 
 export const sanitizeStringArray = (values: unknown): string[] => {
   if (!Array.isArray(values)) {

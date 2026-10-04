@@ -1,7 +1,9 @@
 /**
  * Answers to doubts: posting, editing, upvoting and accepting.
  *
- * Split out of studentController.ts by CC-72; the handlers are unchanged.
+ * Split out of studentController.ts by CC-72. Stage 2 moved the business rules for the
+ * thin handlers here into services/ (complaints/ or doubts/); they now only
+ * translate HTTP in and errors out.
  * See docs/specs/CC-72-controller-split.md.
  */
 
@@ -17,6 +19,10 @@ import {
   prepareContent,
   prepareEdit,
 } from "../../services/content/sanitize.js";
+import {
+  AnswerReviewError,
+  toggleAcceptedAnswer,
+} from "../../services/doubts/answerReview.js";
 import {
   ReputationReason,
   awardReputation,
@@ -34,148 +40,19 @@ export const markAnswerAsAccepted = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const doubtId = req.params.doubtId as string;
-    const answerId = req.params.answerId as string;
-
-    // Check if doubt exists and belongs to the user
-    const doubt = await prisma.doubt.findUnique({
-      where: { id: doubtId },
-    });
-
-    if (!doubt) {
-      res.status(404).json({ error: "Doubt not found" });
-      return;
-    }
-
-    if (doubt.postedById !== req.user!.id) {
-      res
-        .status(403)
-        .json({ error: "Only the doubt owner can accept answers" });
-      return;
-    }
-
-    // Check if answer exists and belongs to the doubt
-    const answer = await prisma.answer.findUnique({
-      where: { id: answerId },
-    });
-
-    if (!answer || answer.doubtId !== doubtId) {
-      res.status(404).json({ error: "Answer not found" });
-      return;
-    }
-
-    // Check if this answer is already accepted
-    const isCurrentlyAccepted = answer.isAccepted;
-
-    let updatedAnswer;
-    let updatedDoubt;
-    let message;
-
-    if (isCurrentlyAccepted) {
-      // Unaccept the answer
-      [updatedAnswer, updatedDoubt] = await prisma.$transaction([
-        prisma.answer.update({
-          where: { id: answerId },
-          data: { isAccepted: false },
-        }),
-        prisma.doubt.update({
-          where: { id: doubtId },
-          data: {
-            acceptedAnswerId: null,
-            status:
-              doubt.answerCount > 0 ? DoubtStatus.ANSWERED : DoubtStatus.OPEN,
-          },
-        }),
-      ]);
-
-      // Decrement doubtsSolved for the answerer
-      const answererProfile = await prisma.studentProfile.findUnique({
-        where: { userId: answer.answeredById },
-      });
-
-      if (answererProfile && answererProfile.doubtsSolved > 0) {
-        await prisma.studentProfile.update({
-          where: { userId: answer.answeredById },
-          data: { doubtsSolved: { decrement: 1 } },
-        });
-      }
-
-      message = "Answer unaccepted successfully";
-    } else {
-      // If there was a previously accepted answer, unmark it
-      if (doubt.acceptedAnswerId) {
-        await prisma.answer.update({
-          where: { id: doubt.acceptedAnswerId },
-          data: { isAccepted: false },
-        });
-
-        // Decrement doubtsSolved for the previous answerer
-        const previousAnswer = await prisma.answer.findUnique({
-          where: { id: doubt.acceptedAnswerId },
-        });
-        if (previousAnswer) {
-          const previousAnswererProfile =
-            await prisma.studentProfile.findUnique({
-              where: { userId: previousAnswer.answeredById },
-            });
-          if (
-            previousAnswererProfile &&
-            previousAnswererProfile.doubtsSolved > 0
-          ) {
-            await prisma.studentProfile.update({
-              where: { userId: previousAnswer.answeredById },
-              data: { doubtsSolved: { decrement: 1 } },
-            });
-          }
-        }
-      }
-
-      // Mark the new answer as accepted and update doubt status
-      [updatedAnswer, updatedDoubt] = await prisma.$transaction([
-        prisma.answer.update({
-          where: { id: answerId },
-          data: { isAccepted: true },
-        }),
-        prisma.doubt.update({
-          where: { id: doubtId },
-          data: {
-            acceptedAnswerId: answerId,
-            status: DoubtStatus.RESOLVED,
-          },
-        }),
-      ]);
-
-      // CC-25: the strongest signal available - the person who asked says
-      // this is what solved it.
-      await awardReputation({
-        userId: answer.answeredById,
-        reason: ReputationReason.ANSWER_ACCEPTED,
-        sourceType: "Answer",
-        sourceId: answerId,
-        actorId: req.user!.id,
-      });
-
-      // Update student profile - increment doubtsSolved for the answerer
-      const answererProfile = await prisma.studentProfile.findUnique({
-        where: { userId: answer.answeredById },
-      });
-
-      if (answererProfile) {
-        await prisma.studentProfile.update({
-          where: { userId: answer.answeredById },
-          data: { doubtsSolved: { increment: 1 } },
-        });
-      }
-
-      message = "Answer marked as accepted";
-    }
-
-    res.json({
-      message,
-      answer: updatedAnswer,
-      doubt: updatedDoubt,
-    });
+    // CC-72: the rules live in services/doubts/answerReview.ts.
+    res.json(
+      await toggleAcceptedAnswer({
+        doubtId: req.params.doubtId as string,
+        answerId: req.params.answerId as string,
+        askerId: req.user!.id,
+      }),
+    );
   } catch (error) {
+    if (error instanceof AnswerReviewError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
     console.error("Error toggling answer acceptance:", error);
     res.status(500).json({ error: "Internal server error" });
   }
