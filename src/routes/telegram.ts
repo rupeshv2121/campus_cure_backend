@@ -10,6 +10,7 @@ import { TELEGRAM_ENABLED } from "../config/env.js";
 import { authenticate } from "../middleware/auth.js";
 import {
   createLinkCode,
+  getTelegramStatus,
   isAuthenticWebhook,
   parseStartCommand,
   redeemLinkCode,
@@ -37,6 +38,21 @@ telegramLinkRouter.get(
       res.json(await createLinkCode(req.user!.id));
     } catch (error) {
       console.error("[CC-42] link code failed:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
+
+// Linked or not, and the bot to open. Answers even when Telegram is off, so
+// the profile card can hide itself instead of erroring.
+telegramLinkRouter.get(
+  "/telegram",
+  authenticate,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      res.json(await getTelegramStatus(req.user!.id));
+    } catch (error) {
+      console.error("[CC-42] status failed:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   },

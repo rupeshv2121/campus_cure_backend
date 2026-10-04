@@ -3,6 +3,7 @@ import { prisma } from "../config/database.js";
 import { queueNotificationEmail } from "../services/email/notificationEmail.js";
 import { triggerEmailDrainInBackground } from "../services/email/outbox.js";
 import { queueNotificationPush } from "../services/notify/push.js";
+import { queueNotificationTelegram } from "../services/notify/telegram.js";
 
 export interface CreateNotificationParams {
   userId: string;
@@ -39,17 +40,22 @@ export async function createNotification(params: CreateNotificationParams) {
       email,
     });
 
-    // CC-41: a browser alert on every device the user turned it on for.
-    // Never throws, for the same reason as the email above.
-    if (await queueNotificationPush({
+    // CC-41 push and CC-42 Telegram: every other channel the user turned
+    // on. Each is independent of email and of the others, and none throws.
+    const pushed = await queueNotificationPush({
       notificationId: result.id,
       userId: notification.userId,
       type: notification.type,
       title: notification.title,
       message: notification.message,
-    })) {
-      triggerEmailDrainInBackground();
-    }
+    });
+    const telegrammed = await queueNotificationTelegram({
+      notificationId: result.id,
+      userId: notification.userId,
+      title: notification.title,
+      message: notification.message,
+    });
+    if (pushed || telegrammed) triggerEmailDrainInBackground();
 
     return result;
   } catch (error) {
